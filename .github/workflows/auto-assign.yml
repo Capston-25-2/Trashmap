@@ -15,5 +15,11 @@ jobs:
       uses: pozil/auto-assign-issue@v1
       with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          addReviewers: true
+          reviewers: |
+            ARanker
+            Jimmy2849
+            minjunyeong1
+          numberOfReviewers: 0 
           assignees: Jimmy2849
           numOfAssignee: 1
