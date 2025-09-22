@@ -1,5 +1,6 @@
+[![Python Version](https://img.shields.io/badge/python-3.13-blue)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009485.svg?logo=fastapi&logoColor=white)](#)
 ![Auto Assign](https://github.com/Capston-25-2/demo-repository/actions/workflows/auto-assign.yml/badge.svg)
-
 ![Proof HTML](https://github.com/Capston-25-2/demo-repository/actions/workflows/proof-html.yml/badge.svg)
 
 # Welcome to your organization's demo respository
