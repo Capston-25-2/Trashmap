@@ -14,6 +14,7 @@ android {
         versionCode = 1
         versionName = "1.0"
         buildConfigField("String", "KAKAO_NATIVE_APP_KEY", "\"e5752654d616f86696b8c1eb1242e213\"")
+        manifestPlaceholders["KAKAO_NATIVE_APP_KEY"] = "e5752654d616f86696b8c1eb1242e213"
 
         buildFeatures {
             buildConfig = true
@@ -56,9 +57,13 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 
-    implementation("com.kakao.maps.open:android:2.12.17")
-    //Retrofit (서버 통신용)
+    implementation("com.google.android.material:material:1.12.0")
+
+    implementation("com.kakao.sdk:v2-all:2.22.0")
+
+    implementation("com.kakao.maps.open:android:2.12.18")
+    // Retrofit (서버 통신용)
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
-    //Gson (JSON <-> 코틀린 객체 변환용)
+    // Gson (JSON <-> 코틀린 객체 변환용)
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
 }

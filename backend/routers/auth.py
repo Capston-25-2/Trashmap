@@ -73,13 +73,21 @@ async def kakao_login(kakao_access_token: dict, db: AsyncSession = Depends(get_d
 
     # 3. 없으면 새로 생성, 있으면 정보 업데이트
     if not user:
+        # --- 👇 카카오 API의 새로운 구조에 맞게 수정! ---
+        # 닉네임은 kakao_account -> profile 안에 있습니다.
+        kakao_account = kakao_user_data.get("kakao_account", {})
+        profile = kakao_account.get("profile", {})
+        nickname = profile.get("nickname", f"사용자_{kakao_id}") # 닉네임이 없는 경우를 대비
+
         new_user = models.User(
-            login_id=str(kakao_id), # 카카오 ID를 login_id로 사용
-            username=kakao_user_data["properties"]["nickname"],
+            login_id=str(kakao_id),
+            username=nickname
         )
+
         db.add(new_user)
         await db.commit()
         await db.refresh(new_user)
+        # 새로 만든 사용자로 user 변수를 업데이트합니다.
         user = new_user
 
     # 4. 우리 서비스의 JWT 생성 및 반환

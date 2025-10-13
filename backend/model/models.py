@@ -1,3 +1,4 @@
+import enum
 from sqlalchemy import (Column, BIGINT, INT, TEXT, VARCHAR, 
                         TIMESTAMP, ForeignKey, func, Enum, Table)
 from sqlalchemy.orm import relationship
@@ -9,7 +10,7 @@ from database import Base
 
 
 # Python의 Enum 클래스를 사용하여 DB의 ENUM 타입과 매핑합니다.
-class UserRole(Enum.Enum):
+class UserRole(enum.Enum):
     user = 'user'
     admin = 'admin'
 

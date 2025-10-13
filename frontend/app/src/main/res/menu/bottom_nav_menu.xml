@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 아이콘 기본인데 추후 수정 필요 -->
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/navigation_profile"
+        android:icon="@android:drawable/ic_menu_myplaces"
+        android:title="프로필" />
+    <item
+        android:id="@+id/navigation_add_bin"
+        android:icon="@android:drawable/ic_menu_add"
+        android:title="등록하기" />
+    <item
+        android:id="@+id/navigation_ranking"
+        android:icon="@android:drawable/ic_menu_sort_by_size"
+        android:title="대시보드" />
+</menu>
