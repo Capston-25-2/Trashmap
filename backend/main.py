@@ -5,7 +5,7 @@ import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from database import engine, Base
+from db.database import engine, Base
 from routers import auth, user, leaderboard, bins
 
 # --- 앱 설정 ---

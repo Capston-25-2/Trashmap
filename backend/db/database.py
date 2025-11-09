@@ -2,9 +2,16 @@ import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
 
+# 환경변수 로드
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT")
+DATABASE = os.getenv("DATABASE")
+
 # 1. DB 접속 주소 설정
 # "postgresql+asyncpg://[DB유저명]:[DB비밀번호]@[DB서버주소]:[포트]/[DB이름]"
-DATABASE_URL = "postgresql+asyncpg://postgres:0000@127.0.0.1:5432/postgres"
+DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DATABASE}"
 
 # 2. 비동기 엔진 생성
 engine = create_async_engine(DATABASE_URL, echo=True)

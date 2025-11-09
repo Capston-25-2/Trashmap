@@ -4,8 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
-import models, schemas
-from database import get_db
+import model.models as models
+import schema.schemas as schemas
+from db.database import get_db
 from routers.auth import get_current_user # auth.py 에서 만든 인증 함수 임포트
 
 router = APIRouter(

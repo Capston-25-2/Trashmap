@@ -7,8 +7,9 @@ from sqlalchemy.future import select
 from jose import JWTError, jwt
 from datetime import datetime, timedelta, timezone
 
-import models, schemas
-from database import get_db
+import model.models as models
+import schema.schemas as schemas
+from db.database import get_db
 
 # --- 설정 ---
 # .env 파일에서 환경 변수 로드

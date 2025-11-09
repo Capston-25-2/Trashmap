@@ -6,7 +6,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from geoalchemy2 import Geometry
 from shapely.wkt import loads as wkt_loads
 
-from database import Base
+from db.database import Base
 
 
 # Python의 Enum 클래스를 사용하여 DB의 ENUM 타입과 매핑합니다.

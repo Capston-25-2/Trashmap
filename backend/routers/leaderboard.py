@@ -3,8 +3,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-import models, schemas
-from database import get_db
+import model.models as models
+import schema.schemas as schemas
+from db.database import get_db
 
 router = APIRouter(
     prefix="/leaderboard",
