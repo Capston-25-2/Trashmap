@@ -1,7 +1,24 @@
+// 1. 🌟 'Properties' 클래스를 사용하기 위해 import 구문을 파일 맨 위에 추가합니다.
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose.compiler)
 }
+
+// 'Properties()'의 빨간 줄이 이제 사라져야 합니다.
+val properties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+
+if (localPropertiesFile.exists()) {
+    properties.load(localPropertiesFile.inputStream())
+} else {
+    // 2. 🌟 'logger.warn' 대신 'println'을 사용해 경고를 출력합니다.
+    println("WARN: local.properties file not found. Using default values.")
+}
+
+val kakaoAppKey = properties.getProperty("KAKAO_NATIVE_APP_KEY", "DEFAULT_KEY_IF_NOT_FOUND")
 
 android {
     namespace = "com.example.trashmapv2"
@@ -13,57 +30,59 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
-        buildConfigField("String", "KAKAO_NATIVE_APP_KEY", "\"e5752654d616f86696b8c1eb1242e213\"")
-        manifestPlaceholders["KAKAO_NATIVE_APP_KEY"] = "e5752654d616f86696b8c1eb1242e213"
 
-        buildFeatures {
-            buildConfig = true
-        }
-
-        ndk {
-            // 에뮬레이터(x86) 및 실제 기기(arm)용 라이브러리를 모두 포함
-            abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64"))
-        }
+        buildConfigField(
+            "String",
+            "KAKAO_NATIVE_APP_KEY",
+            "\"$kakaoAppKey\""
+        )
+        manifestPlaceholders["KAKAO_NATIVE_APP_KEY"] = kakaoAppKey
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
+    buildFeatures {
+        buildConfig = true
+        compose = true
     }
+
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
+
     kotlinOptions {
-        jvmTarget = "11"
+        jvmTarget = "17"
     }
 }
 
 dependencies {
-
+    // (기존의 implementation(libs.androidx...) 등은 그대로 둡니다)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.constraintlayout)
+    implementation("androidx.compose.material:material-icons-extended")
+
+    // ... (기존 카카오, 레트로핏 등) ...
+    implementation("com.google.android.material:material:1.12.0")
+    implementation("com.kakao.sdk:v2-all:2.22.0")
+    implementation("com.kakao.maps.open:android:2.12.18")
+    implementation("com.squareup.retrofit2:retrofit:2.9.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+
+    // --- ⬇️ 6. Jetpack Compose 핵심 의존성 추가 ⬇️ ---
+    implementation("androidx.activity:activity-compose:1.8.0") // (최신 버전 확인)
+    implementation(platform("androidx.compose:compose-bom:2023.08.00")) // BOM
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.material3:material3") // Material 3 (Scaffold, NavigationBar 등)
+    implementation("androidx.compose.ui:ui-tooling-preview") // 미리보기용
+    debugImplementation("androidx.compose.ui:ui-tooling")
+    // --- ⬆️ Jetpack Compose 핵심 의존성 추가 ⬆️ ---
+
+    // (기존 테스트 의존성)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-
-    implementation("com.google.android.material:material:1.12.0")
-
-    implementation("com.kakao.sdk:v2-all:2.22.0")
-
-    implementation("com.kakao.maps.open:android:2.12.18")
-    // Retrofit (서버 통신용)
-    implementation("com.squareup.retrofit2:retrofit:2.9.0")
-    // Gson (JSON <-> 코틀린 객체 변환용)
-    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
 }

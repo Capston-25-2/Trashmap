@@ -34,8 +34,9 @@ class SplashActivity : AppCompatActivity() {
             // 3. 권한 결과를 확인합니다.
             val allGranted = permissions.entries.all { it.value }
             if (allGranted) {
-                // 모든 권한이 허용되었으면 로그인 화면으로 이동
-                checkLoginStatus()
+                val intent = Intent(this, MainActivity::class.java)
+                startActivity(intent)
+                finish()
             } else {
                 // 하나라도 거부된 권한이 있으면 경고창을 띄웁니다.
                 showPermissionDeniedDialog()
@@ -50,21 +51,6 @@ class SplashActivity : AppCompatActivity() {
         requestPermissionLauncher.launch(permissions)
     }
 
-    private fun checkLoginStatus() {
-        // TokenManager를 이용해 저장된 JWT 토큰을 불러옵니다.
-        val authToken = TokenManager.getAuthToken(this)
-
-        if (authToken != null) {
-            // 토큰이 있다면 (로그인 상태라면) MainActivity로 이동
-            val intent = Intent(this, MainActivity::class.java)
-            startActivity(intent)
-        } else {
-            // 토큰이 없다면 (로그아웃 상태라면) LoginActivity로 이동
-            val intent = Intent(this, LoginActivity::class.java)
-            startActivity(intent)
-        }
-        finish()
-    }
 
     private fun showPermissionDeniedDialog() {
         AlertDialog.Builder(this)
