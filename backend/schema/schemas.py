@@ -120,3 +120,6 @@ class PointHistoryItem(CustomBaseModel):
 
 class PointHistoryResponse(BaseModel):
     data: List[PointHistoryItem]
+
+class KakaoLoginRequest(BaseModel):
+    access_token: str
