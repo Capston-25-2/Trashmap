@@ -1,6 +1,6 @@
 import os
 import boto3
-from pillow import Image
+from PIL import Image
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -58,8 +58,8 @@ def process_bin_image_task(trashcan_id: int, s3_file_key: str):
         return f"Task {trashcan_id} processed successfully."
 
     except Exception as e:
-        # (TODO: 실패 시 롤백 로직)
         db.rollback()
+        # TODO: 실패 시 DB status를 'rejected'로 업데이트
         return f"Task {trashcan_id} failed: {e}"
     finally:
         db.close()
