@@ -28,7 +28,7 @@ async def get_trashcan_details(
     query = (
         select(models.Trashcan)
         .options(
-            selectinload(models.Trashcan.categoreis)
+            selectinload(models.Trashcan.categories),
             selectinload(models.Trashcan.user)
         )
         .where(models.Trashcan.trashcan_id == binId)
