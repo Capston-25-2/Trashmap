@@ -1,17 +1,30 @@
+// In SplashActivity.kt
+
 package com.example.trashmapv2
 
 import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.compose.setContent // 👈 🌟 (1) import 변경!
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import com.example.trashmapv2.auth.TokenManager
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+import com.example.trashmapv2.ui.theme.TrashMapAppV2Theme // 👈 🌟 (2) 우리 테마 import!
 
 class SplashActivity : AppCompatActivity() {
 
-    // 1. 요청할 권한 목록을 정의합니다.
+    // (1. 권한 목록 정의는 그대로 둡니다)
     private val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         arrayOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -28,30 +41,35 @@ class SplashActivity : AppCompatActivity() {
         )
     }
 
-    // 2. 권한 요청 결과를 처리하는 ActivityResultLauncher를 등록합니다.
+    // (2. 권한 요청 콜백도 그대로 둡니다)
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
-            // 3. 권한 결과를 확인합니다.
             val allGranted = permissions.entries.all { it.value }
             if (allGranted) {
+                // (권한이 허용되면, 무조건 MainActivity로 갑니다 - 님이 수정한 로직)
                 val intent = Intent(this, MainActivity::class.java)
                 startActivity(intent)
                 finish()
             } else {
-                // 하나라도 거부된 권한이 있으면 경고창을 띄웁니다.
+                // (권한이 거부되면 경고창)
                 showPermissionDeniedDialog()
             }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_splash)
 
-        // 4. 액티비티가 생성되면 바로 권한을 요청합니다.
+        setContent {
+            TrashMapAppV2Theme(darkTheme = false) { // (라이트 모드 고정)
+                // (스플래시 화면 UI - 지금은 로고만 중앙에 배치)
+                SplashScreen()
+            }
+        }
+        // (4. 권한 요청은 setContent *다음에* 실행)
         requestPermissionLauncher.launch(permissions)
     }
 
-
+    // (5. 권한 거부 다이얼로그 함수는 그대로 둡니다)
     private fun showPermissionDeniedDialog() {
         AlertDialog.Builder(this)
             .setTitle("권한 필요")
@@ -59,7 +77,22 @@ class SplashActivity : AppCompatActivity() {
             .setPositiveButton("확인") { _, _ ->
                 finishAffinity()
             }
-            .setCancelable(false) // 뒤로 가기 버튼으로 대화상자를 닫지 못하게 함
+            .setCancelable(false)
             .show()
+    }
+}
+
+// ⬇️ 🌟 (6) 'activity_splash.xml'을 대체할 Composable 함수 🌟 ⬇️
+@Composable
+fun SplashScreen() {
+    Box(
+        modifier = Modifier.fillMaxSize(), // 꽉 채우기
+        contentAlignment = Alignment.Center // 중앙 정렬
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.ic_login_logo),
+            contentDescription = "앱 로고",
+            modifier = Modifier.size(150.dp) // 로그인 화면보다 조금 더 크게
+        )
     }
 }

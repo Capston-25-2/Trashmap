@@ -6,7 +6,7 @@ val Purpleicon = Color(0xFF556EFF)
 
 val ExpBarBackground = Color(0xFF8FE4F7)
 
-val Background = Color(0xFFFFD95E)
+val Background = Color(0xFFFFD95E).copy(alpha = 0.37f)
 
 // (#D9D9D9) 피그마의 회색 원 (아마도 '기본 이미지'용)
 val LightGrayPlaceholder = Color(0xFFD9D9D9)

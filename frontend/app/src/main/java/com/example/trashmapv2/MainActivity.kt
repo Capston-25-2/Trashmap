@@ -37,6 +37,12 @@ import com.kakao.vectormap.label.LabelOptions
 import com.kakao.vectormap.label.LabelStyle
 import com.kakao.vectormap.label.LabelLayer
 import com.kakao.vectormap.label.LabelStyles
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.app.ActivityCompat
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+
 class MainActivity : AppCompatActivity() {
 
     private lateinit var mapView: MapView
@@ -68,7 +74,6 @@ class MainActivity : AppCompatActivity() {
                         modifier = Modifier.fillMaxSize() // (패딩 없이 꽉 채움)
                     )
 
-                    // ⬇️ 🌟 (3) 'Scaffold'를 완전히 *제거*했습니다! 🌟 ⬇️
 
                     // (맨 앞 - 상단) 상단 필터 바를 Box의 '상단'에 정렬
                     MapFilterTopBar(
@@ -113,46 +118,84 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val mapReadyCallback = object : KakaoMapReadyCallback() {
+        // ⬇️ 🌟 이 함수 전체를 덮어쓰세요! 🌟 ⬇️
         override fun onMapReady(kakaoMap: KakaoMap) {
             Log.d("KakaoMap", "onMapReady successful")
             this@MainActivity.kakaoMap = kakaoMap
 
-            // (1) 카메라 이동
-            val seoulStation = LatLng.from(37.5547, 126.9706)
-            val cameraUpdate: CameraUpdate =
-                CameraUpdateFactory.newCenterPosition(seoulStation, 16)
-            kakaoMap.moveCamera(cameraUpdate)
+            // --- 1. 내 위치 가져오기 ---
+            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(this@MainActivity)
 
-            // ⬇️ 🌟 (2) 핀 코드 (Java 코드 기반으로 100% 수정) 🌟 ⬇️
+            // (권한이 있는지 다시 한번 확인합니다 - Splash에서 이미 받았지만 안전을 위해)
+            if (ActivityCompat.checkSelfPermission(
+                    this@MainActivity,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                // (2) 권한이 있다면, "현재" 위치를 1회성으로 요청합니다.
+                fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                    .addOnSuccessListener { location ->
+                        if (location != null) {
+                            Log.d("KakaoMap", "내 위치 수신 성공: ${location.latitude}, ${location.longitude}")
 
-            val labelManager = kakaoMap.labelManager ?: return
+                            // (3) 내 위치로 LatLng 객체 생성
+                            val myPosition = LatLng.from(location.latitude, location.longitude)
 
-            // 2. 님이 drawable에 넣은 'ic_map_pin'으로 '스타일 1개' 생성
-            // (⚠️ 'R.drawable.ic_map_pin'은 님이 저장한 실제 파일 이름이어야 합니다!)
-            val myPinStyle = LabelStyle.from(R.drawable.ic_map_pin)
+                            // (4) 🌟 [Goal 1] 카메라를 내 위치로 이동!
+                            val cameraUpdate: CameraUpdate =
+                                CameraUpdateFactory.newCenterPosition(myPosition, 16) // 줌 레벨 16
+                            kakaoMap.moveCamera(cameraUpdate)
 
-            // 3. 🌟 '스타일 1개'를 '스타일 묶음(LabelStyles)'으로 만듭니다. (ID 필요 없음!)
-            val myPinStyles = LabelStyles.from(myPinStyle)
+                            // (5) 🌟 [Goal 2] 내 위치에 핀 찍기
+                            addMyPositionPin(kakaoMap, myPosition)
 
-            // 4. 'addLabelStyles'(복수형)로 이 '묶음'을 등록합니다.
-            labelManager.addLabelStyles(myPinStyles)
-
-            // 5. 핀 위치 (새말공원)
-            val pinPosition = LatLng.from(37.5590, 126.9650)
-
-            // 6. 🌟 (Fix) 'apply' 블록에서 'styleId' 대신 'styles' (복수형)를 직접 할당합니다.
-            val options = LabelOptions.from(pinPosition).apply {
-                styles = myPinStyles // 👈 🌟 .setStyles(myPinStyles)와 동일
+                        } else {
+                            Log.w("KakaoMap", "내 위치(location)가 null입니다.")
+                            // (위치를 못 찾으면 그냥 서울역을 보여줍니다 - 예비용)
+                            moveToSeoulStation(kakaoMap)
+                        }
+                    }
+                    .addOnFailureListener {
+                        Log.e("KakaoMap", "내 위치 수신 실패", it)
+                        moveToSeoulStation(kakaoMap) // (실패 시 서울역)
+                    }
+            } else {
+                // (권한이 없으면 그냥 서울역을 보여줍니다)
+                moveToSeoulStation(kakaoMap)
             }
-
-            // 7. '도화지(Layer)'를 가져옵니다.
-            val layer = labelManager.layer
-
-            // 8. '도화지'에 핀을 추가합니다. (안전 호출)
-            layer?.addLabel(options)
-
-            Log.d("KakaoMap", "'ic_map_pin' 추가 시도 완료.")
         }
+    }
+
+    // 🌟 (C) 맵이 준비되었을 때 서울역으로 보내는 함수 (예비용)
+    private fun moveToSeoulStation(kakaoMap: KakaoMap) {
+        val seoulStation = LatLng.from(37.5547, 126.9706)
+        val cameraUpdate: CameraUpdate =
+            CameraUpdateFactory.newCenterPosition(seoulStation, 16)
+        kakaoMap.moveCamera(cameraUpdate)
+    }
+
+    //  (D) '내 위치' 핀을 추가하는 새 함수
+    private fun addMyPositionPin(kakaoMap: KakaoMap, position: LatLng) {
+        val labelManager = kakaoMap.labelManager ?: return
+        val layer = labelManager.layer ?: return
+
+        // (1)  'ic_my_position.png' 아이콘으로 '스타일 1개' 생성
+
+        val myPositionStyle = LabelStyle.from(R.drawable.ic_my_position)
+
+        // (2)  '스타일 1개'를 '스타일 묶음(LabelStyles)'으로 만듭니다.
+        val myPositionStyles = LabelStyles.from(myPositionStyle)
+
+        // (3)  '스타일 묶음'을 등록합니다.
+        labelManager.addLabelStyles(myPositionStyles)
+
+        // (4)  (Fix) 'styleId' 대신 'styles' (복수형)를 직접 할당합니다.
+        val options = LabelOptions.from(position).apply {
+            styles = myPositionStyles
+        }
+        // (5) 핀 추가
+        layer.addLabel(options)
+        Log.d("KakaoMap", "내 위치 핀 추가 완료.")
     }
 
     // --- 로그인 확인 함수 (이건 아마 내용이 있으실 겁니다) ---

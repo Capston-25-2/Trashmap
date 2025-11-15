@@ -19,7 +19,7 @@ if (localPropertiesFile.exists()) {
 }
 
 val kakaoAppKey = properties.getProperty("KAKAO_NATIVE_APP_KEY", "DEFAULT_KEY_IF_NOT_FOUND")
-
+val serverUrl = properties.getProperty("SERVER_BASE_URL", "\"http://127.0.0.1:8000\"")
 android {
     namespace = "com.example.trashmapv2"
     compileSdk = 36
@@ -36,6 +36,13 @@ android {
             "KAKAO_NATIVE_APP_KEY",
             "\"$kakaoAppKey\""
         )
+
+        buildConfigField(
+            "String",
+            "SERVER_BASE_URL",
+            "\"$serverUrl\""
+        )
+
         manifestPlaceholders["KAKAO_NATIVE_APP_KEY"] = kakaoAppKey
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -67,6 +74,7 @@ dependencies {
 
     // ... (기존 카카오, 레트로핏 등) ...
     implementation("com.google.android.material:material:1.12.0")
+    implementation("com.google.android.gms:play-services-location:21.2.0")
     implementation("com.kakao.sdk:v2-all:2.22.0")
     implementation("com.kakao.maps.open:android:2.12.18")
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
