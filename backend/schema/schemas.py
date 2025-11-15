@@ -27,6 +27,9 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     user_id: Optional[int] = None
+    
+class KakaoLoginRequest(BaseModel):
+    access_token: str
 
 # --- 쓰레기통(Bin) 관련 스키마 ---
 class TrashcanCategory(CustomBaseModel):
@@ -55,11 +58,17 @@ class PresignedUrlResponse(BaseModel):
     url: str = Field(..., description="업로드에 사용할 Presigned URL")
     file_key: str = Field(..., description="S3에 저장될 파일 경로(key)")
 
+class JobAcceptedResponse(BaseModel):
+    message: str = "요청이 접수되었으며, 백그라운드에서 검증이 진행됩니다."
+    trashcan_id: int
+
 # 공통 필드 수정 필요시 이것만 수정
 class BinInList(CustomBaseModel):
     trashcan_id: int
     geom: Geom
     categories: List[str]
+    is_congested: bool
+    is_verified: bool
 
 # 2. BinInList를 상속받아 중복 필드(trashcan_id, geom, categories)를 제거합니다.
 class BinDetail(BinInList):
@@ -67,23 +76,21 @@ class BinDetail(BinInList):
     img_url: Optional[str]
     author: BinAuthor
     created_at: datetime
+    status: str # 쓰레기통 검증 상태
 
 class MyBin(CustomBaseModel):
     trashcan_id: int
     img_url: Optional[str]
     body: Optional[str]
     created_at: datetime
+    status: str # 쓰레기통 검증 상태
 
 # --- API 응답(Response) 래퍼 스키마 ---
 class BinListResponse(BaseModel):
     data: List[BinInList]
 
-class TrashcanCreationResponse(BaseModel):
-    trashcan_id: int
-    message: str = "쓰레기통이 성공적으로 등록되었습니다."
-
 class MyBinsResponse(BaseModel):
-    total_bins: int
+    pagination: int
     bins: List[MyBin]
 
 # --- 신고(Report) 관련 스키마 ---
@@ -132,5 +139,6 @@ class PointHistoryItem(CustomBaseModel):
 class PointHistoryResponse(BaseModel):
     data: List[PointHistoryItem]
 
-class KakaoLoginRequest(BaseModel):
-    access_token: str
+class MyActivityResponse(BaseModel):
+    pagination: dict
+    data: List[MyBin | MyReport] # MyBin이나 MyReport의 리스트
