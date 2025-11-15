@@ -39,10 +39,21 @@ class Geom(BaseModel):
 
 # 실제 작동하지는 않음 내부적으로 이미지를 받아서 처리함 bin.py에서
 class TrashcanCreate(BaseModel):
-    latitude: float = Field(..., example=37.5547)
-    longitude: float = Field(..., example=126.9706)
+    categories: List[int] = Field(..., example=[1, 2])
+    lat: float = Field(..., example=37.5547)
+    lon: float = Field(..., example=126.9706)
+    is_congested: bool
+    is_verified: bool
     body: Optional[str] = Field(None, example="서울역 1번 출구 앞")
-    category_ids: List[int] = Field(..., example=[1, 3])
+    s3_file_key: str = Field(..., description = "S3에 업로드 완료된 파일의 경로(key)")
+
+class PresignedUrlRequest(BaseModel):
+    filename: str = Field(..., description="원본 파일명 (예: image.jpg)")
+    content_type: str = Field(..., description="파일 MIME 타입 (예: image/jpeg)")
+    
+class PresignedUrlResponse(BaseModel):
+    url: str = Field(..., description="업로드에 사용할 Presigned URL")
+    file_key: str = Field(..., description="S3에 저장될 파일 경로(key)")
 
 # 공통 필드 수정 필요시 이것만 수정
 class BinInList(CustomBaseModel):
