@@ -80,8 +80,8 @@ async def create_trashcan(
     # (임시) S3에서 받은 URL을 그대로 사용
     # (주의) S3_BUCKET_NAME이 None이면 오류가 날 수 있습니다. .env 파일 확인!
     if not S3_BUCKET_NAME:
-         raise HTTPException(status_code=500, detail="S3_BUCKET_NAME이 서버 환경변수에 설정되지 않았습니다.")
-         
+        raise HTTPException(status_code=500, detail="S3_BUCKET_NAME이 서버 환경변수에 설정되지 않았습니다.")
+        
     image_url = f"https://{S3_BUCKET_NAME}.s3.amazonaws.com/{bin_data.s3_file_key}"
     
     # --- 1. DB 저장 로직 ---
