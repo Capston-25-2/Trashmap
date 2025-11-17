@@ -63,7 +63,7 @@ class JobAcceptedResponse(BaseModel):
     trashcan_id: int
 
 # 공통 필드 수정 필요시 이것만 수정
-class BinInList(CustomBaseModel):
+class BinMapPin(CustomBaseModel):
     trashcan_id: int
     geom: Geom
     categories: List[str]
@@ -71,7 +71,7 @@ class BinInList(CustomBaseModel):
     is_verified: bool
 
 # 2. BinInList를 상속받아 중복 필드(trashcan_id, geom, categories)를 제거합니다.
-class BinDetail(BinInList):
+class BinDetail(BinMapPin):
     body: Optional[str]
     img_url: Optional[str]
     author: BinAuthor
@@ -87,7 +87,7 @@ class MyBin(CustomBaseModel):
 
 # --- API 응답(Response) 래퍼 스키마 ---
 class BinListResponse(BaseModel):
-    data: List[BinInList]
+    data: List[BinMapPin]
 
 class MyBinsResponse(BaseModel):
     pagination: int
