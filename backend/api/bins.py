@@ -123,7 +123,9 @@ async def create_trashcan(
     # --- 2. 백그라운드 작업 큐에 작업 등록
     process_bin_image_task.delay(
         trashcan_id = db_trashcan.trashcan_id,
-        s3_file_key = bin_data.s3_file_key
+        s3_file_key = bin_data.s3_file_key,
+        user_lat = bin_data.lat,
+        user_lon = bin_data.lon
     )
 
     # --- 3. 성공 응답 (202 Accepted) 반환 ---
