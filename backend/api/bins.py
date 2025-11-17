@@ -106,7 +106,7 @@ async def create_trashcan(
         body = bin_data.body,
         img_url = image_url, # 임시 URL
         user_id = current_user.user_id,
-        categories = db.categories,
+        categories = db_categories,
         is_congested = bin_data.is_congested,
         is_verified = False,
         status = 'pending_validation'
