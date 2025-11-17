@@ -3,9 +3,11 @@ from fastapi import APIRouter, Depends, HTTPException, status, File, Form, Uploa
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload # N + 1 문제 방지
+from sqlalchemy import func
 from typing import List
 import uuid
 from geoalchemy2.shape import from_shape
+from geoalchemy2.functions import ST_MakeEnvelope
 from shapely.geometry import Point
 import boto3 # AWS S3 연동 라이브러리
 import os
@@ -63,6 +65,75 @@ async def get_presigned_url(
     except Exception as e:
         raise HTTPException(status_code = 500, detail = f"S3 Presigned URL 발급 실패: {e}")
     
+
+# GET /bins/ API
+@router.get("/", response_model=schemas.BinListResponse)
+async def get_trashcan_in_bounds(
+    sw_lat: float, # 남서쪽 위도 ymin
+    sw_lon: float, # 남서쪽 경도 xmin
+    ne_lat: float, # 북동쪽 위도 ymax
+    ne_lon: float, # 북동쪽 경도 xmax
+    category: str = "1, 2, 3", # 기본값: 전체 카테고리
+    db: AsyncSession = Depends(get_db)
+):
+
+    # 지도 경계와 카테고리 ID를 기준으로 'approved' 쓰레기통 목록 조회
+
+    # 1. 카테고리 파라미터 처리
+    try:
+        category_ids = [int(cid.strip()) for cid in category.split(',') if cid.strip()]
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="'category' 파라미터는 쉼표로 구분된 숫자여야 합니다."
+        )
+
+    if not category_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="'category' 파라미터가 비어있습니다."
+        )
+    
+    # 2. 공간 쿼리 설정
+    # PostGIS의 ST_MakeEnvelope 함수 사용
+    # (xmin, ymin, xmax, ymax, srid) 순서 = (sw_lon, sw_lat, ne_lon, ne_lat, 4326)
+    bbox_geom = func.ST_MakeEnvelope(sw_lon, sw_lat, ne_lon, ne_lat, 4326)
+
+    # 3. DB 쿼리 실행
+    query = (
+        select(models.Trashcan)
+        .where(
+            # 검증 완료된 쓰레기통
+            models.Trashcan.status == 'approved',
+
+            # 쓰레기통의 위치(geom)가 Bounding Box 내에 포함되는지
+            func.ST_Within(models.Trashcan.geom, bbox_geom),
+
+            # 요청된 카테고리 ID 중 하나라도 포함하는지 확인
+            models.Trashcan.categories.any(
+                models.TrashcanCategory.category_id.in_(category_ids)
+            )
+        )
+        .options(selectinload(models.Trashcan.categories))
+    )
+
+    result = await db.execute(query)
+    trashcans = result.scalars().all()
+
+    # 4. 응답 데이터 가공(Response Schema에 맞게 변환)
+    data_list: List[schemas.BinMapPin] = []
+    for trashcan in trashcans:
+        data_list.append(
+            schemas.BinMapPin(
+                trashcan_id = trashcan.trashcan_id,
+                geom = schemas.Geom(lat = trashcan.latitude, lon = trashcan.longitude),
+                categories = [cat.category_name for cat in trashcan.categories],
+                is_congested = trashcan.is_congested,
+                is_verified = trashcan.is_verified
+            )
+        )
+    
+    return schemas.BinListResponse(data=data_list)
 
 # POST /bins/ API 최종 등록 (Job Ticket 발행)
 @router.post("/", response_model = schemas.JobAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
