@@ -55,6 +55,8 @@ class Trashcan(Base):
     is_congested = Column(BOOLEAN, nullable=False, default=False)
     is_verified = Column(BOOLEAN, nullable=False, default=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
+    # 'pending_validation', 'approved', 'rejected'
+    status = Column(VARCHAR(20), nullable=False, default='pending_validation')
     
     # 양방향 관계 설정
     user = relationship("User", back_populates="trashcans")
