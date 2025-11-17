@@ -50,6 +50,12 @@ class TrashcanCreate(BaseModel):
     body: Optional[str] = Field(None, example="서울역 1번 출구 앞")
     s3_file_key: str = Field(..., description = "S3에 업로드 완료된 파일의 경로(key)")
 
+class TrashcanUpdate(BaseModel):
+    body: Optional[str] = Field(None, description="업데이트할 내용")
+    img_url: Optional[str] = Field(None, description="업데이트할 이미지 경로")
+    is_congested: Optional[bool] = Field(None, description="업데이트할 혼잡도 여부")
+    is_verified: Optional[bool] = Field(None, description="업데이트할 정부인증 여부")
+
 class PresignedUrlRequest(BaseModel):
     filename: str = Field(..., description="원본 파일명 (예: image.jpg)")
     content_type: str = Field(..., description="파일 MIME 타입 (예: image/jpeg)")
