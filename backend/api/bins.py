@@ -15,6 +15,7 @@ import os
 # 우리가 만든 파일 임포트
 from db.database import get_db
 from model import models
+from model.models import UserRole
 from schema import schemas
 from api.auth import get_current_user
 from tasks.bin_processor import process_bin_image_task
@@ -251,4 +252,81 @@ async def get_trashcan_details(
         is_verified = trashcan.is_verified
     )
     """
+    return trashcan
+
+# PATCH /bins/{binId} API / 권한에 따른 부분 수정
+@router.patch("/{binId}", response_model=schemas.TrashcanUpdate)
+async def update_trashcan_details(
+    binId: int,
+    update_data: schemas.TrashcanUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    
+    # 권한에 따른 쓰레기통 부분 수정
+
+    # 1. 쓰레기통 조회
+    query = (
+        select(models.Trashcan)
+        .options(
+            selectinload(models.Trashcan.categories),
+            selectinload(models.Trashcan.user)
+            )
+        .where(models.Trashcan.trashcan_id == binId)
+    )
+    result = await db.execute(query)
+    trashcan = result.scalars().first()
+
+    if not trashcan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="해당 ID의 쓰레기통을 찾을 수 없습니다."
+        )
+
+    # 2. 권한 확인 및 데이터 필터링
+
+    # 2-1. 클라이언트가 보낸 필드 추출
+    update_dict = update_data.model_dump(exclude_unset=True)
+
+    if not update_dict:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="업데이트할 내용이 없습니다."
+        )
+    
+    # 2-2. User role에 따른 권한 분기
+    if current_user.role == UserRole.user:
+        # 일반 사용자
+        # 수정 권한이 있는 필드 정의
+        user_allowed_fields = {"img_url", "is_congested"}
+
+        # 요청된 필드(Key)가 허용 목록에 있는지 확인
+        requested_keys = set(update_dict.keys())
+
+        if not requested_keys.issubset(user_allowed_fields):
+            # 만약 요청된 키 중 허용되지 않은 키(예: is_verified)가 있다면
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="일반 유저는 해당 필드를 수정할 수 없습니다."
+            )
+        
+    elif current_user.role == UserRole.admin:
+        # 관리자
+        pass
+
+    # 3. DB 업데이트
+    for key, value in update_dict.items():
+        setattr(trashcan, key, value)
+
+    # 4. DB 저장
+    try:
+        await db.commit()
+        await db.refresh(trashcan)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"업데이트 중 오류 발생: {e}"
+        )
+    
     return trashcan
