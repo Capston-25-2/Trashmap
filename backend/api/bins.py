@@ -38,7 +38,7 @@ s3_client = boto3.client(
     region_name='ap-northeast-2' # (예시) S3 버킷 리전을 명시해주는 것이 좋습니다.
 )
 
-# POST /bins/ API Presigned URL 발급
+# POST /bins/presigned-url API Presigned URL 발급
 @router.post("/presigned-url", response_model=schemas.PresignedUrlResponse)
 async def get_presigned_url(
     file_request: schemas.PresignedUrlRequest,
