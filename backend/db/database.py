@@ -1,6 +1,9 @@
 import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # 1. DB 접속 주소를 여기에 직접 입력합니다.
 DATABASE_URL = os.getenv("DATABASE_URL")
