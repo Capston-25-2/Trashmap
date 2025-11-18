@@ -57,12 +57,12 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
-    // 2. 로그인 버튼 클릭 시 실행될 함수 (기존 로직)
+    // 2. 로그인 버튼 클릭 시 실행될 함수
     private fun startKakaoLogin() {
+
         if (UserApiClient.instance.isKakaoTalkLoginAvailable(this)) {
             UserApiClient.instance.loginWithKakaoTalk(this) { token, error ->
                 if (error != null) {
-                    // ... 에러 처리 ... 지금은 오류 발생시 웹으로 시도
                     UserApiClient.instance.loginWithKakaoAccount(this, callback = callback)
                 } else if (token != null) {
                     handleLoginSuccess(token)
@@ -72,8 +72,6 @@ class LoginActivity : AppCompatActivity() {
             UserApiClient.instance.loginWithKakaoAccount(this, callback = callback)
         }
     }
-
-    // 🌟 (6) 나머지 함수들은 *전혀* 수정할 필요가 없습니다! (기존 코드 그대로)
     private fun handleLoginSuccess(token: OAuthToken) {
         Log.i("LOGIN_SUCCESS", "카카오 액세스 토큰: ${token.accessToken}")
         sendKakaoTokenToServer(token.accessToken)
@@ -117,7 +115,6 @@ class LoginActivity : AppCompatActivity() {
 fun LoginScreen(
     onKakaoLoginClick: () -> Unit // Activity의 로직을 전달받음
 ) {
-    // 피그마의 세로 배치 (ConstraintLayout 대신 Column 사용)
     Column(
         modifier = Modifier
             .fillMaxSize()

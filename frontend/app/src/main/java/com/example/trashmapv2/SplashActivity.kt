@@ -6,7 +6,7 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.compose.setContent // 👈 🌟 (1) import 변경!
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -20,11 +20,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import com.example.trashmapv2.ui.theme.TrashMapAppV2Theme // 👈 🌟 (2) 우리 테마 import!
+import com.example.trashmapv2.ui.theme.TrashMapAppV2Theme
 
 class SplashActivity : AppCompatActivity() {
-
-    // (1. 권한 목록 정의는 그대로 둡니다)
     private val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         arrayOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -41,17 +39,14 @@ class SplashActivity : AppCompatActivity() {
         )
     }
 
-    // (2. 권한 요청 콜백도 그대로 둡니다)
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
             val allGranted = permissions.entries.all { it.value }
             if (allGranted) {
-                // (권한이 허용되면, 무조건 MainActivity로 갑니다 - 님이 수정한 로직)
                 val intent = Intent(this, MainActivity::class.java)
                 startActivity(intent)
                 finish()
             } else {
-                // (권한이 거부되면 경고창)
                 showPermissionDeniedDialog()
             }
         }
@@ -65,11 +60,9 @@ class SplashActivity : AppCompatActivity() {
                 SplashScreen()
             }
         }
-        // (4. 권한 요청은 setContent *다음에* 실행)
         requestPermissionLauncher.launch(permissions)
     }
 
-    // (5. 권한 거부 다이얼로그 함수는 그대로 둡니다)
     private fun showPermissionDeniedDialog() {
         AlertDialog.Builder(this)
             .setTitle("권한 필요")
@@ -82,7 +75,6 @@ class SplashActivity : AppCompatActivity() {
     }
 }
 
-// ⬇️ 🌟 (6) 'activity_splash.xml'을 대체할 Composable 함수 🌟 ⬇️
 @Composable
 fun SplashScreen() {
     Box(
