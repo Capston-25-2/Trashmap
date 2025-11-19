@@ -94,7 +94,7 @@ class Report(Base):
     __tablename__ = 'report'
 
     report_id = Column(BIGINT, primary_key=True)
-    report_img_url = Column(VARCHAR, nullable=False)
+    # report_img_url = Column(VARCHAR, nullable=False) 사진 안받기로 함
     created_at = Column(TIMESTAMP, server_default=func.now())
     
     # 외래 키
