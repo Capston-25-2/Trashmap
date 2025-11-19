@@ -330,3 +330,21 @@ async def update_trashcan_details(
         )
     
     return trashcan
+
+
+# POST /bins/{binId}/report API
+@router.post("/{binId}/report", response_model=schemas.ReportCreationResponse, status_code = status.HTTP_201_CREATED)
+async def create_report(
+    binId: int,
+    report_data: schemas.ReportCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # 특정 쓰레기통에 대한 문제 신고
+    # 신고 종류: 1, 2, 3
+    # 1: 위치 불일치, 2: 혼잡, 3: 파손
+    # 1. 쓰레기통과 신고 유형의 유효성 검증
+    # 2. 해당 쓰레기통에 동일한 유형의 'pending' 이슈 확인
+    # 3. 있으면, 그 이슈에 이 신고를 연결
+    # 4. 없으면 새 이슈를 만들고 연결
+
