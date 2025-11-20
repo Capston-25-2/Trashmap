@@ -332,7 +332,7 @@ async def update_trashcan_details(
     return trashcan
 
 
-# POST /bins/{binId}/report API
+# POST /bins/{binId}/report API  ////// response로 issue_id를 반환할 것인가에 대한 고민 필요
 @router.post("/{binId}/report", response_model=schemas.ReportCreationResponse, status_code = status.HTTP_201_CREATED)
 async def create_report(
     binId: int,
@@ -348,3 +348,81 @@ async def create_report(
     # 3. 있으면, 그 이슈에 이 신고를 연결
     # 4. 없으면 새 이슈를 만들고 연결
 
+    # 기본 검증 (신고하려는 쓰레기통과 신고의 유형이 유효한기 검증)
+    # 쓰레기통 확인
+    trashcan = await get_db(models.Trashcan, binId)
+    if not trashcan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="신고 대상 쓰레기통을 찾을 수 없습니다."
+        )
+    
+    # 신고 유형 확인
+    query_type = (
+        select(models.ReportType)
+        .where(models.ReportType.report_type_id == report_data.report_type_id)
+    )
+    result_type = await db.execute(query_type)
+    report_type = result_type.scalars().first()
+
+    if not report_type:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="유효하지 않은 신고 유형입니다."
+        )
+    
+    # 이슈 처리 로직
+    # 해당 쓰레기통(BinId)에 아직 해결되지 않은('pending') 이슈가 있는지 조회
+    query_issue = (
+        select(models.Issue)
+        .where(
+            models.Issue.trashcan_id == binId,
+            models.Issue.issue_type == report_type.report_type_name,
+            models.Issue.status == 'pending'
+        )
+    )
+    result_issue = await db.execute(query_issue)
+    existing_issue = result_issue.scalars().first()
+
+    target_issue = None
+
+    # 있으면 해당 이슈에 이 신고를 연결
+    if existing_issue:
+        target_issue = existing_issue
+    # 없으면 새로운 이슈 생성하고 연결
+    else:
+        new_issue = models.Issue(
+            trashcan_id = binId,
+            issue_type = report_type.report_type_name,
+            status = 'pending'
+        )
+        db.add(new_issue)
+        await db.flush()
+        target_issue = new_issue
+    
+    # 신고 처리 로직
+    new_report = models.Report(
+        trashcan_id = binId,
+        user_id = current_user.user_id,
+        issue_id = target_issue.issue_id, # 바로 위에서 flush()를 해서 예약을 해둬서 commit을 하지 않아도 issue_id를 가지고 있음
+        report_type_id = report_data.report_type_id
+    )
+
+    # DB 업데이트
+    try:
+        db.add(new_report)
+        # 이슈(생성 시)와 신고를 한번에 커밋
+        await db.commit()
+        await db.refresh(new_report)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="신고 등록 중 오류가 발생했습니다: {e}"
+        )
+    
+    # 결과 반환
+    return schemas.ReportCreationResponse(
+        report_id = new_report.report_id,
+        message = "제보가 성공적으로 등록되었습니다."
+    )
