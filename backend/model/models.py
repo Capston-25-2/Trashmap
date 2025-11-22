@@ -37,7 +37,7 @@ class User(Base):
     # 양방향 관계 설정
     trashcans = relationship("Trashcan", back_populates="user")
     reports = relationship("Report", back_populates="user")
-    point_history = relationship("PointHistory", back_populates="user")
+    exp_history = relationship("ExpHistory", back_populates="user")
     opinions = relationship("Opinion", back_populates="user")
     
 
@@ -138,16 +138,16 @@ class Issue(Base):
     def __repr__(self):
         return f"<Issue(issue_id={self.issue_id}, status='{self.status}')>"
 
-class PointHistory(Base):
-    __tablename__ = 'point_history'
-    point_id = Column(BIGINT, primary_key=True)
-    point = Column(INT, nullable=False)
+class ExpHistory(Base):
+    __tablename__ = 'exp_history'
+    exp_id = Column(BIGINT, primary_key=True)
+    exp = Column(INT, nullable=False)
     reason = Column(VARCHAR(255), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
     
     user_id = Column(BIGINT, ForeignKey("users.user_id"), nullable=False)
     
-    user = relationship("User", back_populates="point_history")
+    user = relationship("User", back_populates="exp_history")
     
     def __repr__(self):
-        return f"<PointHistory(point_id={self.point_id}, reason='{self.reason}')>"
+        return f"<ExpHistory(exp_id={self.exp_id}, reason='{self.reason}')>"
