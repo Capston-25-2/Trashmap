@@ -155,3 +155,9 @@ async def get_my_activity(
             total_reports = total_count,
             reports = data_list
         )
+    
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="type 파라미터는 'bins' 또는 'reports'여야 합니다."
+        )
