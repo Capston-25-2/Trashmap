@@ -55,3 +55,98 @@ async def patch_user_me(
         )
 
     return current_user
+
+# GET /user/me/bins API
+@router("/me/bins", response_model=Union[schemas.MyBinsResponse, schemas.MyReportsResponse])
+async def get_my_activity(
+    type: str = Query(..., description="'bins' 또는 'reports'"),
+    offset: int = 0, # 안보내면 기본값 0
+    limit: int = 20, # 안보내면 기본값 20
+    current_user: models.User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # 내가 등록한 쓰레기통(bins) 또는 내가 신고한 쓰레기통(reports)을 조회
+    
+    # CASE 1. 내가 등록한 쓰레기통 조회 (type = 'bins')
+    if type == 'bins':
+        # 데이터 조회 쿼리
+        query = (
+            select(models.Trashcan)
+            .where(models.Trashcan.user_id == current_user.user_id)
+            .order_by(desc(models.Trashcan.created_at))
+            .offset(offset)
+            .limit(limit)
+        )
+
+        # 전체 개수 조회(페이지네이션 계산용)
+        count_query = (
+            select(func.count())
+            .select_from(models.Trashcan)
+            .where(models.Trashcan.user_id == current_user.user_id)
+        )
+
+        # DB 실행
+        result = db.execute(query)
+        trashcans = result.scalars().all()
+
+        count_result = db.execute(count_query)
+        total_count = count_result.scalars()
+
+        # 응답 데이터 조립 // 그냥 자동으로 Pydantic에게 맡겨도 되는데 연습용으로 해봄
+        data_list = []
+        for t in trashcans:
+            data_list.append(schemas.Mybin(
+                trashcan_id = t.trashcan_id,
+                img_url = t.img_url,
+                body = t.body,
+                created_at = t.created_at,
+                status = t.status
+                )
+            )
+
+        return schemas.MyBinsResponse(
+            pagination = total_count,
+            bins = data_list
+        )
+    
+    # CASE 2. 내가 신고한 쓰레기통 조회(type = 'reports')
+    elif type == 'reports':
+        # 데이터 조회 쿼리
+        query = (
+            select(models.Report)
+            .where(models.Report.user_id == current_user.user_id)
+            .order_by(desc(models.Report.created_at))
+            .offset(offset)
+            .limit(limit)
+        )
+
+        # 전체 개수 조회(페이지네이션 계산용)
+        count_query = (
+            select(func.count())
+            .select_from(models.Report)
+            .where(models.Report.user_id == current_user.user_id)
+        )
+
+        # DB 실행
+        result = await db.execute(query)
+        reports = result.scalars().all()
+
+        count_result = await db.execute(count_query)
+        total_count = count_result.scalars()
+
+        # 응답 데이터 조립 // 그냥 자동으로 Pydantic에게 맡겨도 되는데 연습용으로 해봄
+        data_list = []
+        for r in reports:
+            data_list.append(schemas.MyReport(
+                report_id = r.report_id,
+                created_at = r.created_at,
+                trashcan = r.trashcan,
+                issue = r.issue,
+                report_type = r.report_type
+                )
+            )
+        
+        return schemas.MyReportsResponse(
+            total_reports = total_count,
+            reports = data_list
+        )
