@@ -114,6 +114,11 @@ async def get_my_activity(
         # 데이터 조회 쿼리
         query = (
             select(models.Report)
+            .options(
+                selectinload(models.Report.trashcan),
+                selectinload(models.Report.issue),
+                selectinload(models.Report.report_type)
+            )
             .where(models.Report.user_id == current_user.user_id)
             .order_by(desc(models.Report.created_at))
             .offset(offset)
