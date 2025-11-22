@@ -11,6 +11,7 @@ class CustomBaseModel(BaseModel):
 class User(CustomBaseModel):
     username: str
     level: int
+    exp: int
 
 class UserUpdate(BaseModel):
     username: str
@@ -143,8 +144,5 @@ class ExpHistoryItem(CustomBaseModel):
     created_at: datetime
 
 class ExpHistoryResponse(BaseModel):
+    total_count: int
     data: List[ExpHistoryItem]
-
-class MyActivityResponse(BaseModel):
-    pagination: dict
-    data: List[MyBin | MyReport] # MyBin이나 MyReport의 리스트

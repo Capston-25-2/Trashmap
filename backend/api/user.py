@@ -137,7 +137,7 @@ async def get_my_activity(
         reports = result.scalars().all()
 
         count_result = await db.execute(count_query)
-        total_count = count_result.scalars()
+        total_count = count_result.scalar()
 
         # 응답 데이터 조립 // 그냥 자동으로 Pydantic에게 맡겨도 되는데 연습용으로 해봄
         data_list = []
@@ -179,3 +179,36 @@ async def get_user_user_id(
         )
 
     return user
+
+# GET /user/exp API
+@router.get("/exp", response_model=schemas.ExpHistoryResponse)
+async def get_my_exp(
+    offset: int = 0,
+    limit: int = 20,
+    current_user: models.User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    query = (
+        select(models.ExpHistory)
+        .where(models.ExpHistory.user_id == current_user.user_id)
+        .order_by(desc(models.ExpHistory.created_at))
+        .offset(offset)
+        .limit(limit)
+    )
+
+    count_query = (
+        select(func.count())
+        .select_from(models.ExpHistory)
+        .where(models.ExpHistory.user_id == current_user.user_id)
+    )
+
+    result = await db.execute(query)
+    history_list = result.scalars().all()
+
+    count_result = await db.execute(count_query)
+    total_count = count_result.scalar()
+
+    return schemas.ExpHistoryResponse(
+        total_count = total_count,
+        data = history_list
+    )
