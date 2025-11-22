@@ -12,7 +12,7 @@ class User(CustomBaseModel):
     username: str
     level: int
 
-class NicknameUpdate(BaseModel):
+class UserUpdate(BaseModel):
     username: str
 
 class BinAuthor(CustomBaseModel):
