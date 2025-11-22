@@ -156,8 +156,26 @@ async def get_my_activity(
             reports = data_list
         )
     
+    # CASE 3. 예외처리
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="type 파라미터는 'bins' 또는 'reports'여야 합니다."
         )
+    
+
+# GET /user/{userId} API // 쓰레기통 조회 화면이나 리더보드 페이지에서 사용(로그인 불필요)
+@router.get("/{userId}", response_model=schemas.User)
+async def get_user_user_id(
+    userId: int,
+    db: AsyncSession = Depends(get_db)
+):
+    user = await db.get(models.User, userId)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="해당 사용자를 찾을 수 없습니다."
+        )
+
+    return user
