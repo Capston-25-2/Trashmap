@@ -12,6 +12,7 @@ from typing import Tuple
 from core.celery_app import celery_app
 from db.database import DATABASE_URL
 from model import models
+from utils import give_exp_sync
 
 # (주의) Celery 작업자는 FastAPI의 'Depends(get_db)를 사용할 수 없다
 # 별도의 동기(Synchronous) DB 연결 설정을 사용해야 한다
@@ -162,6 +163,9 @@ def process_bin_image_task(trashcan_id: int, s3_file_key: str, user_lat: float, 
             trashcan.img_url = f"https://{S3_BUCKET_NAME}.s3.amazonaws.com/{new_file_key}"
             db.commit()
         
+        # exp 100 지급
+        give_exp_sync(trashcan.user_id, 100, "쓰레기통 등록", db)
+
         return f"Task {trashcan_id} processed successfully."
 
     except Exception as e:
