@@ -280,7 +280,6 @@ fun ProfileButtonTabs() {
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically // (추가!)
     ) {
-        // (TODO: R.drawable...을 1단계에서 추가한 님 아이콘 이름으로 바꾸세요!)
 
         // "경험치" 버튼
         ProfileTabButton(

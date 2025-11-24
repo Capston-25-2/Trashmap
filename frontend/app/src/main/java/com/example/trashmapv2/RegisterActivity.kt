@@ -1,307 +1,276 @@
 package com.example.trashmapv2
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cameraswitch
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
-import androidx.core.view.WindowCompat
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
-import com.example.trashmapv2.ui.main.RegisterScreen
-import com.example.trashmapv2.ui.main.VerifyingScreen
+import com.example.trashmapv2.auth.TokenManager
+import com.example.trashmapv2.network.RetrofitClient
+import com.example.trashmapv2.network.TrashcanCreateRequest
 import com.example.trashmapv2.ui.theme.TrashMapAppV2Theme
-import com.kakao.vectormap.LatLng
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.io.File
-import java.util.concurrent.Executors
-
-class RegisterActivity : AppCompatActivity() {
-
-    private var registerLatLng: LatLng? = null
-    private var photoUri: Uri? = null
-    private var internalPhotoUri: Uri? = null
-
-    private var screenState by mutableStateOf("camera")
-
-    // 🌟 (1) 카메라 권한 런처로 변경
-    private val requestPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-            if (isGranted) {
-                // 권한 허용됨, 화면 갱신 (이미 "camera" 상태일 것)
-                // (CameraX는 Composable 내에서 시작됨)
-                Log.d("RegisterActivity", "Camera permission granted")
-            } else {
-                // 권한 거부됨
-                Toast.makeText(this, "카메라 권한이 필요합니다.", Toast.LENGTH_LONG).show()
-                finish()
-            }
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import com.example.trashmapv2.ui.CameraCaptureScreen
+import android.location.Geocoder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.Locale
+class RegisterActivity : ComponentActivity() {
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            Toast.makeText(this, "카메라 권한이 허용되었습니다.", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "카메라 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
+            finish()
         }
+    }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-
+        // 1. MainActivity에서 넘겨준 좌표 받기
         val lat = intent.getDoubleExtra("latitude", 0.0)
-        val lng = intent.getDoubleExtra("longitude", 0.0)
-        if (lat != 0.0) {
-            registerLatLng = LatLng.from(lat, lng)
-        }
-
-        // 🌟 (2) 기존 인텐트 실행 로직 제거 (setContent로 이동)
+        val lon = intent.getDoubleExtra("longitude", 0.0)
 
         setContent {
-            TrashMapAppV2Theme(darkTheme = false) {
-                when (screenState) {
-                    "verifying" -> {
-                        VerifyingScreen(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .windowInsetsPadding(WindowInsets.systemBars)
-                        )
+            TrashMapAppV2Theme {
+                RegisterScreen(
+                    lat = lat,
+                    lon = lon,
+                    onBackClick = { finish() }, // 뒤로가기
+                    onRegisterClick = { categories ->
+                        // 등록 버튼 누르면 서버 전송
+                        registerTrashcan(lat, lon, categories)
                     }
-                    "registering" -> {
-                        RegisterScreen(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .windowInsetsPadding(WindowInsets.systemBars),
-                            photoUri = photoUri,
-                            onRegisterClick = { selectedCategories ->
-                                Log.d("API_CALL", "POST /bins (최종 등록)")
-                                finish()
-                            }
-                        )
-                    }
-                    "camera" -> {
-                        // 🌟 (3) CameraX 구현을 위한 화면 호출
-                        CameraCaptureScreen(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .windowInsetsPadding(WindowInsets.systemBars),
-                            onImageCaptured = { uri ->
-                                // 사진 촬영 성공
-                                photoUri = uri
-                                screenState = "verifying"
-                                // 검증 로직 시작
-                                lifecycleScope.launch {
-                                    delay(3000L) // (TODO: API 검증)
-                                    val isVerified = true
-
-                                    if (isVerified) {
-                                        screenState = "registering"
-                                    } else {
-                                        Toast.makeText(this@RegisterActivity, "쓰레기통 사진이 아닌 것 같습니다.", Toast.LENGTH_LONG).show()
-                                        finish()
-                                    }
-                                }
-                            },
-                            onCaptureFailed = {
-                                // 사진 촬영 실패/취소
-                                Log.e("RegisterActivity", "사진 촬영 실패 또는 취소")
-                                finish()
-                            },
-                            onRequestPermission = {
-                                // 🌟 (4) 권한 요청 실행
-                                requestPermissionLauncher.launch(Manifest.permission.CAMERA)
-                            }
-                        )
-                    }
-                }
+                )
             }
         }
     }
 
-    // 🌟 (5) CameraCaptureScreen Composable (새로 추가)
-    @Composable
-    fun CameraCaptureScreen(
-        modifier: Modifier = Modifier,
-        onImageCaptured: (Uri) -> Unit,
-        onCaptureFailed: () -> Unit,
-        onRequestPermission: () -> Unit
-    ) {
-        val context = LocalContext.current
-        val lifecycleOwner = LocalLifecycleOwner.current
-        val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
+    // 서버 전송 함수
+    private fun registerTrashcan(lat: Double, lon: Double, categories: List<Int>) {
+        lifecycleScope.launch {
+            val token = TokenManager.getAuthToken(this@RegisterActivity)
+            if (token == null) {
+                Toast.makeText(this@RegisterActivity, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
 
-        var hasCamPermission by remember {
-            mutableStateOf(
-                ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.CAMERA
-                ) == PackageManager.PERMISSION_GRANTED
-            )
-        }
-
-        // 렌즈 방향 상태 (기본값: 후면)
-        var lensFacing by remember { mutableStateOf(CameraSelector.LENS_FACING_BACK) }
-        val imageCapture = remember { ImageCapture.Builder().build() }
-        val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
-
-        if (hasCamPermission) {
-            Box(modifier = modifier.background(Color.Black)) {
-                // 카메라 미리보기
-                AndroidView(
-                    factory = { ctx ->
-                        val previewView = PreviewView(ctx)
-                        val cameraProvider = cameraProviderFuture.get()
-
-                        val preview = Preview.Builder().build().also {
-                            it.setSurfaceProvider(previewView.surfaceProvider)
-                        }
-
-                        // 🌟 후면 카메라를 강제로 선택
-                        val cameraSelector = CameraSelector.Builder()
-                            .requireLensFacing(lensFacing)
-                            .build()
-
-                        try {
-                            cameraProvider.unbindAll()
-                            cameraProvider.bindToLifecycle(
-                                lifecycleOwner,
-                                cameraSelector,
-                                preview,
-                                imageCapture
-                            )
-                        } catch (e: Exception) {
-                            Log.e("CameraCaptureScreen", "Camera binding failed", e)
-                        }
-                        previewView
-                    },
-                    modifier = Modifier.fillMaxSize()
+            try {
+                // Mock용 더미 데이터 생성
+                val request = TrashcanCreateRequest(
+                    lat = lat,
+                    lon = lon,
+                    categories = categories,
+                    s3FileKey = "mock_image_file.jpg",
+                    isCongested = false,
+                    isVerified = false
                 )
 
-                // 하단 컨트롤 UI
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 32.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // 빈 공간 (정렬용)
-                    Spacer(modifier = Modifier.size(64.dp))
+                // API 호출
+                val response = RetrofitClient.apiInstance.registerBin(
+                    token = "Bearer $token",
+                    request = request
+                )
 
-                    // 촬영 버튼
-                    IconButton(
-                        onClick = {
-                            // ⬇️ 🌟 (A) 저장할 File 객체를 먼저 생성합니다.
-                            // (createImageUri() 함수의 로직을 여기로 가져옵니다)
-                            val imageFile = File(
-                                context.filesDir,
-                                "trash_photo_${System.currentTimeMillis()}.jpg"
-                            )
-
-                            // ⬇️ 🌟 (B) File 객체를 사용하는 빌더로 변경합니다.
-                            // (이것이 ContentResolver/ContentValues 방식보다 간단합니다)
-                            val outputFileOptions =
-                                ImageCapture.OutputFileOptions.Builder(imageFile).build()
-
-                            // (C) 사진 촬영
-                            imageCapture.takePicture(
-                                outputFileOptions,
-                                cameraExecutor,
-                                object : ImageCapture.OnImageSavedCallback {
-                                    override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                                        // (D) 저장이 성공하면, File 객체로부터 Uri를 생성합니다.
-                                        val savedUri = FileProvider.getUriForFile(
-                                            context,
-                                            "${BuildConfig.APPLICATION_ID}.provider",
-                                            imageFile
-                                        )
-                                        // (E) Activity의 변수 및 콜백으로 Uri 전달
-                                        internalPhotoUri = savedUri
-                                        onImageCaptured(savedUri)
-                                    }
-
-                                    override fun onError(exception: ImageCaptureException) {
-                                        Log.e("CameraCaptureScreen", "Image capture failed", exception)
-                                        onCaptureFailed()
-                                    }
-                                }
-                            )
-                        },
-                        modifier = Modifier.size(64.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PhotoCamera,
-                            contentDescription = "Take picture",
-                            tint = Color.White,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-
-                    // 카메라 전환 버튼
-                    IconButton(
-                        onClick = {
-                            lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK) {
-                                CameraSelector.LENS_FACING_FRONT
-                            } else {
-                                CameraSelector.LENS_FACING_BACK
-                            }
-                            // (참고: Composable이 Recompose되면서 AndroidView 팩토리가 다시 실행되어
-                            // 카메라 바인딩이 업데이트됩니다. 실제 프로덕션에서는
-                            // `update = { ... }` 블록에서 바인딩을 다시 하는 것이 더 효율적입니다.)
-                        },
-                        modifier = Modifier.size(48.dp) // 촬영 버튼보다 약간 작게
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Cameraswitch,
-                            contentDescription = "Switch camera",
-                            tint = Color.White,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
+                if (response.isSuccessful) {
+                    Toast.makeText(this@RegisterActivity, "등록 성공", Toast.LENGTH_LONG).show()
+                    Log.d("Register", "성공 ID: ${response.body()?.trashcanId}")
+                    finish() // 성공하면 화면 닫기
+                } else {
+                    Toast.makeText(this@RegisterActivity, "등록 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
                 }
+            } catch (e: Exception) {
+                Log.e("Register", "에러", e)
+                Toast.makeText(this@RegisterActivity, "오류 발생", Toast.LENGTH_SHORT).show()
             }
-        } else {
-            // 권한이 없을 때
-            Box(modifier = modifier.background(Color.Black)) {
-                // (권한 요청 로직을 여기에 둘 수도 있습니다.)
-                // 지금은 Activity가 권한을 요청하도록 즉시 콜백을 호출합니다.
-                LaunchedEffect(Unit) {
-                    onRequestPermission()
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RegisterScreen(
+    lat: Double,
+    lon: Double,
+    onBackClick: () -> Unit,
+    onRegisterClick: (List<Int>) -> Unit
+) {
+    // 1. 화면 상태 관리 (폼 화면 vs 카메라 화면)
+    var isCameraOpen by remember { mutableStateOf(false) }
+
+    // 2. 찍은 사진 저장할 변수
+    var photoUri by remember { mutableStateOf<android.net.Uri?>(null) }
+
+    // 3. 카테고리 선택 관리
+    val selectedCategories = remember { mutableStateListOf<Int>() }
+    val categoryMap = mapOf(1 to "일반 쓰레기", 2 to "재활용", 3 to "음료/컵")
+
+    val context = LocalContext.current
+    var addressText by remember { mutableStateOf("위치 확인 중...") }
+
+    LaunchedEffect(lat, lon) {
+        // IO 스레드(백그라운드)에서 주소 변환 수행
+        withContext(Dispatchers.IO) {
+            try {
+                val geocoder = Geocoder(context, Locale.KOREA)
+                // 좌표로 주소 가져오기 (최대 1개)
+                val addresses = geocoder.getFromLocation(lat, lon, 1)
+
+                if (!addresses.isNullOrEmpty()) {
+                    // 도로명 주소 가져오기
+                    val address = addresses[0].getAddressLine(0)
+                    // "대한민국" 이라는 글자가 있으면 떼버리기 (깔끔하게)
+                    addressText = address.replace("대한민국 ", "")
+                } else {
+                    addressText = "주소를 찾을 수 없습니다."
                 }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                addressText = "주소 변환 오류"
             }
         }
     }
 
-
-    // (createImageUri는 동일)
-    private fun createImageUri(): Uri {
-        val imageFile = File(applicationContext.filesDir, "trash_photo_${System.currentTimeMillis()}.jpg")
-        return FileProvider.getUriForFile(
-            applicationContext,
-            "${BuildConfig.APPLICATION_ID}.provider",
-            imageFile
+    if (isCameraOpen) {
+        // (A) 카메라 화면 보여주기
+        // 파일 상단에 import com.example.trashmapv2.ui.camera.CameraCaptureScreen 추가 필요!
+        com.example.trashmapv2.ui.CameraCaptureScreen(
+            onImageCaptured = { uri ->
+                photoUri = uri // 찍은 사진 저장
+                isCameraOpen = false // 다시 폼 화면으로 돌아가기
+            },
+            onCaptureFailed = {
+                Toast.makeText(context, "촬영 실패", Toast.LENGTH_SHORT).show()
+                isCameraOpen = false
+            },
+            onRequestPermission = {
+                // 여기서 권한 요청! (Activity가 아닌 곳에서 부르려면 Context 활용 필요하지만,
+                // 일단 RegisterActivity의 Launcher를 직접 연결하기 어려우므로
+                // 간단히 Toast 띄우거나, Activity 쪽에서 콜백을 받아야 함.
+                // *여기서는 간단히 Toast만 띄우고, 실제 권한은 Activity 진입 시 체크하는 게 좋음*
+                Toast.makeText(context, "권한이 필요합니다.", Toast.LENGTH_SHORT).show()
+            }
         )
+    } else {
+        // (B) 등록 폼 화면 보여주기
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("새 쓰레기통 등록") },
+                    navigationIcon = {
+                        IconButton(onClick = onBackClick) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "뒤로가기")
+                        }
+                    }
+                )
+            }
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // 1. 사진 첨부 영역 (여기를 수정!)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .background(Color.LightGray, RoundedCornerShape(12.dp))
+                        // 🌟 [수정] 클릭하면 카메라 상태(isCameraOpen)를 true로 변경!
+                        .clickable { isCameraOpen = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (photoUri != null) {
+                        // (1) 사진이 있으면 사진 보여주기
+                        // coil 라이브러리 사용 (AsyncImage)
+                        coil.compose.AsyncImage(
+                            model = photoUri,
+                            contentDescription = "찍은 사진",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                    } else {
+                        // (2) 사진 없으면 카메라 아이콘 보여주기
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color.Gray)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("사진을 찍어주세요 (터치)", color = Color.Gray)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // 2. 위치 정보
+                Text("등록 위치", fontWeight = FontWeight.Bold)
+                Text(
+                    text = addressText, // "서울시 중구 세종대로..."
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // 3. 카테고리 선택
+                Text("어떤 쓰레기통인가요?", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    categoryMap.forEach { (id, name) ->
+                        val isSelected = selectedCategories.contains(id)
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = {
+                                if (isSelected) selectedCategories.remove(id)
+                                else selectedCategories.add(id)
+                            },
+                            label = { Text(name) },
+                            leadingIcon = if (isSelected) {
+                                { Icon(Icons.Default.Check, contentDescription = null) }
+                            } else null
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                // 4. 등록 버튼
+                Button(
+                    onClick = { onRegisterClick(selectedCategories) },
+                    enabled = selectedCategories.isNotEmpty(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                ) {
+                    Text("등록하기", fontSize = 18.sp)
+                }
+            }
+        }
     }
 }

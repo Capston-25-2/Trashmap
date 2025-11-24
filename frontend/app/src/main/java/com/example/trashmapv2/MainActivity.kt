@@ -60,8 +60,8 @@ import com.example.trashmapv2.data.BinGeometry
 import com.example.trashmapv2.ui.main.*
 import com.example.trashmapv2.ui.theme.TrashMapAppV2Theme
 import com.example.trashmapv2.data.MissionInfo
-import com.example.trashmapv2.ui.main.MissionDetailsSheet
-
+import com.example.trashmapv2.network.ReportRequest
+import com.example.trashmapv2.network.RetrofitClient // [추가] Retrofit 사용을 위해 추가
 
 /**
  * 메인 화면을 구성하는 Activity 입니다.
@@ -79,43 +79,36 @@ class MainActivity : AppCompatActivity() {
     private var myPositionPin: Label? = null
     private lateinit var locationCallback: LocationCallback
 
+    // [수정 1] 서버에서 받아온 쓰레기통 리스트를 저장할 멤버 변수 (클릭 이벤트에서 참조하기 위해)
+    private var currentBinList: List<BinDetail> = emptyList()
+    // 미션 리스트 (일단 더미 유지)
+    private var currentMissionList: List<MissionInfo> = emptyList()
+
     // 핀 클릭 시 바텀 시트에 표시할 데이터 (UI 상태 변수)
     var selectedBinInfo by mutableStateOf<BinDetail?>(null)
-        private set // MainActivity 외부에서 이 상태를 변경할 수 없도록 잠급니다.
-    // 미션 핀 상태 변수
+        private set
     var selectedMissionInfo by mutableStateOf<MissionInfo?>(null)
         private set
 
-    // Activity가 생성될 때 호출되는 메인 함수
-    @OptIn(ExperimentalMaterial3Api::class) // ModalBottomSheetState를 사용하기 위해 필요
+    private val MIN_ZOOM_LEVEL_FOR_API = 12
+
+    @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Edge-to-Edge (전체 화면) UI 설정
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        // MapView와 FusedLocationProviderClient, Geocoder 초기화
         mapView = MapView(this)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         geocoder = Geocoder(this, Locale.KOREA)
 
-        // Jetpack Compose UI 설정
         setContent {
             TrashMapAppV2Theme(darkTheme = false) {
-
-                // --- 1. Composable 함수 내에서 사용될 상태 변수들 ---
-
-                // (A) 바텀 시트 제어용
                 val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
                 val coroutineScope = rememberCoroutineScope()
-
-                // (B) '건의 모드' 제어용
                 var currentAddress by remember { mutableStateOf("위치 파악 중...") }
                 var isSuggestionModeActive by remember { mutableStateOf(false) }
 
-                // --- 2. 상태 감지기 (LaunchedEffect) ---
-
-                // (A) 'selectedBinInfo'(클래스 멤버)가 바뀌면 바텀 시트를 띄움
                 LaunchedEffect(selectedBinInfo) {
                     if (selectedBinInfo != null) {
                         coroutineScope.launch { sheetState.show() }
@@ -128,10 +121,9 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                // (B) '건의 모드'가 켜지면 맵 멈춤 감지기 등록
                 LaunchedEffect(isSuggestionModeActive) {
                     if (isSuggestionModeActive) {
-                        kakaoMap?.setOnCameraMoveEndListener { kakaoMap, cameraPosition, gestureType ->
+                        kakaoMap?.setOnCameraMoveEndListener { _, cameraPosition, _ ->
                             val mapCenter = cameraPosition.position
                             currentAddress = getAddressFromCoordinates(mapCenter)
                             Log.d("MainActivity", "지도 멈춤: 주소 업데이트 완료")
@@ -141,82 +133,49 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                // --- 3. 뒤로가기 버튼 제어 ---
                 BackHandler(enabled = isSuggestionModeActive) {
                     isSuggestionModeActive = false
                 }
 
-                // --- 4. 메인 UI (지도 + UI) ---
-                // 'Box'가 지도와 UI들을 겹칩니다.
                 Box(modifier = Modifier.fillMaxSize()) {
-
-                    // (맨 뒤) 지도 UI
                     AndroidView(
                         factory = {
-                            mapView.apply {
-                                start(mapLifeCycleCallback, mapReadyCallback)
-                            }
+                            mapView.apply { start(mapLifeCycleCallback, mapReadyCallback) }
                         },
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    // "건의 모드"와 "일반 모드" UI 분기
                     if (isSuggestionModeActive) {
-
-                        // --- "건의 모드" UI ---
                         SuggestionAddressBar(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top)),
+                            modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top)),
                             address = currentAddress
                         )
-                        SuggestionCenterPin(
-                            modifier = Modifier.align(Alignment.Center)
-                        )
+                        SuggestionCenterPin(modifier = Modifier.align(Alignment.Center))
                         SuggestionConfirmBar(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom)),
-                            onCancelClick = {
-                                isSuggestionModeActive = false
-                            },
+                            modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom)),
+                            onCancelClick = { isSuggestionModeActive = false },
                             onConfirmClick = {
                                 val currentMapCenter = kakaoMap?.cameraPosition?.position
                                 if (currentMapCenter != null) {
-                                    Log.d("SUGGESTION", "최종 선택 위치: ${currentMapCenter.latitude}, ${currentMapCenter.longitude}")
                                     Toast.makeText(this@MainActivity, "위치: ${currentMapCenter.latitude}", Toast.LENGTH_SHORT).show()
-                                    // TODO: 이 'currentMapCenter' 좌표로 '건의하기' API를 호출합니다.
                                 }
                                 isSuggestionModeActive = false
                             }
                         )
-
                     } else {
-
-                        // --- "일반 모드" UI ---
                         MapFilterTopBar(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top))
+                            modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top))
                         )
                         AppBottomNavigation(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom)),
+                            modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom)),
                             onProfileClick = {
-                                if (isUserLoggedIn()) {
-                                    // (로그인 됨) -> ProfileActivity 실행!
-                                    startActivity(Intent(this@MainActivity, ProfileActivity::class.java))
-                                } else {
-                                    // (로그인 안 됨) -> LoginActivity 실행!
-                                    startActivity(Intent(this@MainActivity, LoginActivity::class.java))
-                                }
+                                val targetClass = if (isUserLoggedIn()) ProfileActivity::class.java else LoginActivity::class.java
+                                startActivity(Intent(this@MainActivity, targetClass))
                             },
                             onAddBinClick = {
                                 if (isUserLoggedIn()) {
                                     val currentMapCenter = kakaoMap?.cameraPosition?.position
                                     if (currentMapCenter != null) {
-                                        // (3) RegisterActivity를 실행하고 좌표를 넘겨줍니다.
                                         val intent = Intent(this@MainActivity, RegisterActivity::class.java).apply {
                                             putExtra("latitude", currentMapCenter.latitude)
                                             putExtra("longitude", currentMapCenter.longitude)
@@ -226,60 +185,33 @@ class MainActivity : AppCompatActivity() {
                                         Toast.makeText(this@MainActivity, "지도가 준비되지 않았습니다.", Toast.LENGTH_SHORT).show()
                                     }
                                 } else {
-                                    // (4) 로그인이 안 되어 있으면 LoginActivity로 보냅니다.
                                     Toast.makeText(this@MainActivity, "등록하기는 로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
                                     startActivity(Intent(this@MainActivity, LoginActivity::class.java))
                                 }
                             },
                             onSuggestionClick = {
-                                moveToMyLocation() // 카메라 먼저 이동
+                                moveToMyLocation()
                                 lifecycleScope.launch {
-                                    delay(600L) // 0.6초 대기
+                                    delay(600L)
                                     val mapCenter = kakaoMap?.cameraPosition?.position
                                     if (mapCenter != null) {
                                         currentAddress = getAddressFromCoordinates(mapCenter)
                                     }
-                                    isSuggestionModeActive = true // 팝업 띄우기
+                                    isSuggestionModeActive = true
                                 }
                             }
                         )
                         FloatingActionButton(
                             onClick = { moveToMyLocation() },
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom))
-                                .padding(bottom = 100.dp, end = 16.dp),
+                            modifier = Modifier.align(Alignment.BottomEnd).windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom)).padding(bottom = 100.dp, end = 16.dp),
                             containerColor = MaterialTheme.colorScheme.surface
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.MyLocation,
-                                contentDescription = "내 위치로 이동"
-                            )
+                            Icon(imageVector = Icons.Default.MyLocation, contentDescription = "내 위치로 이동")
                         }
-                    }
-                } // Box
-
-                // --- 5. 핀 클릭 바텀 시트 (Box 밖, Theme 안) ---
-                // 'selectedBinInfo'(클래스 멤버)가 null이 아닐 때만 바텀 시트가 보임
-                if (selectedBinInfo != null) {
-                    ModalBottomSheet(
-                        onDismissRequest = {
-                            selectedBinInfo = null // 바깥을 클릭하면 닫힘
-                        },
-                        sheetState = sheetState,
-                        dragHandle = { BottomSheetDefaults.DragHandle() }
-                    ) {
-                        PinDetailsSheet(
-                            binInfo = selectedBinInfo!!,
-                            onDismiss = {
-                                coroutineScope.launch { sheetState.hide() }
-                                    .invokeOnCompletion { selectedBinInfo = null }
-                            }
-                        )
                     }
                 }
 
-                // ⬇️ 🌟 (D) '미션 핀' 바텀 시트 (새 코드)
+
                 if (selectedMissionInfo != null) {
                     ModalBottomSheet(
                         onDismissRequest = { selectedMissionInfo = null },
@@ -289,35 +221,145 @@ class MainActivity : AppCompatActivity() {
                         MissionDetailsSheet(
                             missionInfo = selectedMissionInfo!!,
                             onVerifyClick = { isYes ->
-                                // (E) "예/아니요" API 호출 (시뮬레이션)
                                 Log.d("API_CALL", "미션(${selectedMissionInfo!!.id}) 검증: $isYes")
-                                // (F) 시트 닫기
-                                coroutineScope.launch { sheetState.hide() }
-                                    .invokeOnCompletion {
-                                        // TODO: 핀 지우기 로직 (리스트에서 제거)
-                                        selectedMissionInfo = null
-                                    }
+                                coroutineScope.launch { sheetState.hide() }.invokeOnCompletion { selectedMissionInfo = null }
                             },
                             onDismiss = {
-                                coroutineScope.launch { sheetState.hide() }
-                                    .invokeOnCompletion { selectedMissionInfo = null }
+                                coroutineScope.launch { sheetState.hide() }.invokeOnCompletion { selectedMissionInfo = null }
                             }
                         )
                     }
                 }
 
-            } // Theme
-        } // setContent
-    } // onCreate
+                if (selectedBinInfo != null) {
+                    ModalBottomSheet(
+                        onDismissRequest = { selectedBinInfo = null },
+                        sheetState = sheetState,
+                        dragHandle = { BottomSheetDefaults.DragHandle() }
+                    ) {
+                        PinDetailsSheet(
+                            binInfo = selectedBinInfo!!,
+                            onDismiss = {
+                                coroutineScope.launch { sheetState.hide() }.invokeOnCompletion { selectedBinInfo = null }
+                            },
+                            onReportAction = { reportType ->
+                                Log.d("Report", "신고 요청: 타입 $reportType")
 
-    // '내 위치로 이동' 버튼 클릭 시 호출되는 함수
+                                // 서버로 전송 1: 위치 없음 2: 꽉참 3: 파손
+                                reportBinToServer(selectedBinInfo!!.id, reportType)
+
+                                coroutineScope.launch { sheetState.hide() }.invokeOnCompletion { selectedBinInfo = null }
+                            }
+                        )
+                    }
+                }
+
+
+
+            }
+        }
+    }
+
+
+    // 서버에 신고 요청 보내는 함수
+    private fun reportBinToServer(binId: Int, type: Int) {
+        lifecycleScope.launch {
+            // 1. 토큰 확인
+            val token = TokenManager.getAuthToken(this@MainActivity)
+            if (token == null) {
+                Toast.makeText(this@MainActivity, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            try {
+                // 2. 요청 데이터 준비 (type 1 = 꽉참)
+                val requestBody = ReportRequest(
+                    reportType = type,
+                    description = "사용자가 '꽉 찼어요' 버튼 클릭함"
+                )
+
+                // 3. Mock 서버로 전송! (POST)
+                val response = RetrofitClient.apiInstance.reportBin(
+                    token = "Bearer $token",
+                    binId = binId,
+                    request = requestBody
+                )
+
+                // 4. 결과 처리
+                if (response.isSuccessful) {
+                    Toast.makeText(this@MainActivity, "신고 완료", Toast.LENGTH_LONG).show()
+                    Log.d("Report", "성공: ${response.body()?.message}")
+
+                } else {
+                    Toast.makeText(this@MainActivity, "전송 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
+                }
+
+            } catch (e: Exception) {
+                Log.e("Report", "통신 에러", e)
+                Toast.makeText(this@MainActivity, "네트워크 오류가 발생했습니다.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+
+    // [수정] 좌표를 받아서 서버에 요청하는 함수
+    private fun fetchBinsFromServer(kakaoMap: KakaoMap) {
+        lifecycleScope.launch {
+            // 1. 토큰 가져오기
+            val token = TokenManager.getAuthToken(this@MainActivity) ?: return@launch
+
+            // 🌟 [핵심] 현재 화면의 좌표 범위 계산
+            val bounds = getMapBounds(kakaoMap)
+            if (bounds == null) {
+                Log.e("MainActivity", "화면 좌표 계산 실패 (지도 로딩 중?)")
+                return@launch
+            }
+
+            val (swLat, swLon, neLat, neLon) = bounds
+            Log.d("API_CALL", "요청 범위: SW($swLat, $swLon) ~ NE($neLat, $neLon)")
+
+            try {
+                // 2. 서버 요청 (좌표 포함!)
+                val response = RetrofitClient.apiInstance.getBins(
+                    token = "Bearer $token",
+                    swLat = swLat,
+                    swLon = swLon,
+                    neLat = neLat,
+                    neLon = neLon
+                )
+
+                if (response.isSuccessful) {
+                    val serverBinList = response.body()?.data ?: emptyList()
+                    Log.d("MainActivity", "데이터 로드 성공: ${serverBinList.size}개")
+
+                    // 데이터 변환 및 핀 찍기 (기존 코드 동일)
+                    currentBinList = serverBinList.map {
+                        // ... (BinDetail 변환 로직 유지) ...
+                        BinDetail(
+                            id = it.id,
+                            description = "서버 데이터 ${it.id}",
+                            categoryIds = listOf(1, 2),
+                            imageUrl = "https://via.placeholder.com/150",
+                            geometry = BinGeometry(it.geom.lat, it.geom.lon),
+                            isCongested = it.isCongested,
+                            isVerified = true,
+                            author = null,
+                            createdAt = "2024-01-01"
+                        )
+                    }
+                    addBinPinsToMap(kakaoMap, currentBinList)
+                } else {
+                    Log.e("MainActivity", "실패: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "에러", e)
+            }
+        }
+    }
+
     private fun moveToMyLocation() {
         val map = kakaoMap ?: return
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             Toast.makeText(this, "위치 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
             return
         }
@@ -327,60 +369,40 @@ class MainActivity : AppCompatActivity() {
                 if (location != null) {
                     val myPosition = LatLng.from(location.latitude, location.longitude)
                     val cameraUpdate = CameraUpdateFactory.newCenterPosition(myPosition, 16)
-                    val animation = CameraAnimation.from(500) // 500ms 지속 시간
+                    val animation = CameraAnimation.from(500)
                     map.moveCamera(cameraUpdate, animation)
-                } else {
-                    Log.w("MainActivity", "위치 정보를 가져왔지만 null입니다.")
                 }
-            }
-            .addOnFailureListener {
-                Log.e("MainActivity", "카메라 이동을 위한 위치 가져오기 실패", it)
             }
     }
 
-    // 좌표(LatLng)를 실제 주소 문자열로 변환하는 함수
     private fun getAddressFromCoordinates(latLng: LatLng): String {
         return try {
             val addresses = geocoder.getFromLocation(latLng.latitude, latLng.longitude, 1)
-            if (addresses.isNullOrEmpty()) {
-                "주소 정보 없음"
-            } else {
-                addresses[0].getAddressLine(0) ?: "주소 정보 없음"
-            }
+            if (addresses.isNullOrEmpty()) "주소 정보 없음" else addresses[0].getAddressLine(0) ?: "주소 정보 없음"
         } catch (e: Exception) {
             Log.e("Geocoder", "주소 변환 실패", e)
             "주소 변환 오류"
         }
     }
 
-    // 카카오맵 생명주기 관련 콜백
     private val mapLifeCycleCallback = object : MapLifeCycleCallback() {
-        override fun onMapDestroy() {
-            Log.d("KakaoMap", "onMapDestroy")
-        }
-
-        override fun onMapError(error: Exception) {
-            Log.e("KakaoMap", "onMapError", error)
-        }
+        override fun onMapDestroy() {}
+        override fun onMapError(error: Exception) {}
     }
 
-// 카카오맵 준비 완료 시 호출되는 콜백
     private val mapReadyCallback = object : KakaoMapReadyCallback() {
         override fun onMapReady(kakaoMap: KakaoMap) {
             Log.d("KakaoMap", "onMapReady successful")
             this@MainActivity.kakaoMap = kakaoMap
 
-            // --- 1. 실시간 '내 위치' 추적 콜백 정의 ---
+            // 1. 실시간 위치 추적
             locationCallback = object : LocationCallback() {
                 override fun onLocationResult(locationResult: LocationResult) {
                     val lastLocation = locationResult.lastLocation ?: return
-                    val newPosition =
-                        LatLng.from(lastLocation.latitude, lastLocation.longitude)
+                    val newPosition = LatLng.from(lastLocation.latitude, lastLocation.longitude)
 
                     if (myPositionPin == null) {
-                        Log.d("KakaoMap", "실시간 추적: 첫 핀 생성")
-                        val cameraUpdate: CameraUpdate =
-                            CameraUpdateFactory.newCenterPosition(newPosition, 16)
+                        val cameraUpdate = CameraUpdateFactory.newCenterPosition(newPosition, 16)
                         kakaoMap.moveCamera(cameraUpdate)
                         addMyPositionPin(kakaoMap, newPosition)
                     } else {
@@ -388,160 +410,180 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            // 2. 맵 준비가 끝났으니, 실시간 추적 시작
             startLocationTracking()
 
-            // --- 3. (A) '일반 핀' 더미 데이터 생성 ---
-            val dummyBins = listOf(
-                BinDetail(
-                    id = 1, description = "서울역 1번 출구 쓰레기통", categoryIds = listOf(1, 2),
-                    imageUrl = "https://picsum.photos/seed/bin1/400/300",
-                    geometry = BinGeometry(37.5559, 126.9723),
-                    isCongested = true, isVerified = false, author = null,
-                    createdAt = "2025-01-01T00:00:00Z"
-                ),
-                BinDetail(
-                    id = 2, description = "새말공원 입구", categoryIds = listOf(1),
-                    imageUrl = null,
-                    geometry = BinGeometry(37.5590, 126.9650),
-                    isCongested = false, isVerified = true, author = null,
-                    createdAt = "2025-01-01T00:00:00Z"
-                )
-            )
-            addDummyPinsToMap(kakaoMap, dummyBins) // '일반 핀' 지도에 추가
+            // [수정 3] 더미 데이터 대신 서버에서 데이터 가져오기
+            fetchBinsFromServer(kakaoMap)
 
-            // --- 3. (B) '미션 핀' 더미 데이터 생성 ---
-            val dummyMissions = listOf(
-                MissionInfo(
-                    id = "mission_1",
-                    question = "진짜 쓰레기통인가요?",
-                    categories = "일반, 재활용",
-                    imageUrl = "https://picsum.photos/seed/mission1/400/300",
-                    position = LatLng.from(37.5575, 126.9690)
-                )
+            // 미션 핀 더미 데이터 (일단 유지)
+            currentMissionList = listOf(
+                MissionInfo("mission_1", "진짜 쓰레기통인가요?", "일반, 재활용", "https://picsum.photos/seed/mission1/400/300", LatLng.from(37.5575, 126.9690))
             )
-            addMissionPinsToMap(kakaoMap, dummyMissions) // '미션 핀' 지도에 추가
+            addMissionPinsToMap(kakaoMap, currentMissionList)
 
-            // --- 4. 🌟 (수정!) '일반 핀'과 '미션 핀'을 모두 처리하는 *하나*의 클릭 리스너 ---
-            kakaoMap.setOnLabelClickListener { kakaoMap, layer, label ->
-                // (태그가 Int이면 '일반 핀', String이면 '미션 핀'으로 구분)
+            // [수정 4] 클릭 리스너 (currentBinList 참조)
+            kakaoMap.setOnLabelClickListener { _, _, label ->
                 when (val tag = label.tag) {
                     is Int -> {
-                        // --- '일반 핀' 클릭 로직 ---
-                        val foundBin = dummyBins.find { it.id == tag }
-                        if (foundBin != null) {
-                            selectedBinInfo = foundBin // '일반 시트' 띄우기
-                        }
+                        // 멤버 변수 currentBinList에서 찾기
+                        val foundBin = currentBinList.find { it.id == tag }
+                        if (foundBin != null) selectedBinInfo = foundBin
                     }
                     is String -> {
-                        // --- '미션 핀' 클릭 로직 ---
-                        if (isUserLoggedIn()) { // 로그인한 사람만!
-                            val foundMission = dummyMissions.find { it.id == tag }
-                            if (foundMission != null) {
-                                selectedMissionInfo = foundMission // '미션 시트' 띄우기
-                            }
+                        if (isUserLoggedIn()) {
+                            val foundMission = currentMissionList.find { it.id == tag }
+                            if (foundMission != null) selectedMissionInfo = foundMission
                         } else {
-                            Toast.makeText(this@MainActivity, "로그인이 필요한 기능입니다.", Toast.LENGTH_SHORT)
-                                .show()
+                            Toast.makeText(this@MainActivity, "로그인이 필요한 기능입니다.", Toast.LENGTH_SHORT).show()
                             startActivity(Intent(this@MainActivity, LoginActivity::class.java))
                         }
                     }
                 }
-                true // 🌟 (수정!) 클릭 이벤트를 처리했음을 'Boolean'으로 반환
+                true
             }
         }
     }
 
-
-
-    // 🌟 (신규) '미션 핀'들을 지도에 추가하는 함수
     private fun addMissionPinsToMap(kakaoMap: KakaoMap, missions: List<MissionInfo>) {
         val labelManager = kakaoMap.labelManager ?: return
         val layer = labelManager.layer ?: return
-
-        // (TODO: R.drawable.ic_mission_pin을 '미션 핀' 아이콘으로!)
-        val style = LabelStyle.from(R.drawable.ic_mission_pin)
+        val style = LabelStyle.from(R.drawable.ic_map_pin) // 임시 아이콘
         val styles = LabelStyles.from(style)
         labelManager.addLabelStyles(styles)
 
         for (mission in missions) {
             val options = LabelOptions.from(mission.position).apply {
                 this.styles = styles
-                tag = mission.id // 👈 🌟 'tag'에 String 타입의 'mission.id' 저장
+                tag = mission.id
             }
             layer.addLabel(options)
         }
-        Log.d("MainActivity", "${missions.size}개의 미션 핀 추가 완료.")
     }
 
-    // 더미 핀들을 지도에 추가하는 함수
-    private fun addDummyPinsToMap(kakaoMap: KakaoMap, bins: List<BinDetail>) {
+
+    private fun addBinPinsToMap(kakaoMap: KakaoMap, bins: List<BinDetail>) {
         val labelManager = kakaoMap.labelManager ?: return
         val layer = labelManager.layer ?: return
-        val style = LabelStyle.from(R.drawable.ic_map_pin)
-        val styles = LabelStyles.from(style)
-        labelManager.addLabelStyles(styles)
 
+        val normalPinRes = R.drawable.ic_map_pin       // (초록/파랑 등 일반색)
+        val redPinRes = R.drawable.ic_map_pin_red      // (빨간색 - 파일 미리 만들어두기!)
+
+        // ---------------------------------------------------------
+        // 2. [스타일 정의] 두 가지 버전(일반/빨간)을 각각 만듭니다.
+        // ---------------------------------------------------------
+
+        // [A] 일반 핀 스타일 (Zoom 레벨에 따른 크기 조절 포함)
+        // ---------------------------------------------------------
+        val normalSmall = LabelStyle.from(getResizedBitmap(normalPinRes, 60, 60))
+            .setZoomLevel(12)
+        val normalBig = LabelStyle.from(getResizedBitmap(normalPinRes, 120, 120))
+            .setZoomLevel(15)
+
+        // 일반용 스타일 묶음
+        val stylesNormal = LabelStyles.from(normalSmall, normalBig)
+
+
+        // [B] 빨간 핀(꽉 참) 스타일 (Zoom 레벨에 따른 크기 조절 포함)
+        // ---------------------------------------------------------
+        val redSmall = LabelStyle.from(getResizedBitmap(redPinRes, 60, 60))
+            .setZoomLevel(12)
+        val redBig = LabelStyle.from(getResizedBitmap(redPinRes, 120, 120))
+            .setZoomLevel(15)
+
+        // 빨간용 스타일 묶음
+        val stylesRed = LabelStyles.from(redSmall, redBig)
+
+
+        // 3. 스타일 등록 (두 개 다 등록해야 함)
+        labelManager.addLabelStyles(stylesNormal)
+        labelManager.addLabelStyles(stylesRed)
+
+
+        // 4. 핀 추가 (데이터에 따라 스타일 골라 쓰기)
         for (bin in bins) {
-            val options = LabelOptions.from(LatLng.from(bin.geometry.latitude, bin.geometry.longitude)).apply {
-                this.styles = styles
+            val position = LatLng.from(bin.geometry.latitude, bin.geometry.longitude)
+
+            val options = LabelOptions.from(position).apply {
+                if (bin.isCongested) {
+                    this.styles = stylesRed
+                    this.rank = 1
+                } else {
+                    this.styles = stylesNormal
+                    this.rank = 0
+                }
+
                 tag = bin.id
             }
             layer.addLabel(options)
         }
-        Log.d("MainActivity", "${bins.size}개의 더미 핀 추가 완료.")
+
+        Log.d("MainActivity", "핀 추가 완료: 총 ${bins.size}개 (혼잡 핀 포함)")
     }
 
+    private fun getResizedBitmap(resId: Int, width: Int, height: Int): android.graphics.Bitmap? {
+        val options = android.graphics.BitmapFactory.Options()
+        options.inJustDecodeBounds = true // 일단 크기만 읽음
+        android.graphics.BitmapFactory.decodeResource(resources, resId, options)
 
-// 지도에 '내 위치' 핀을 추가하는 함수
+        // 원본 불러오기
+        val src = android.graphics.BitmapFactory.decodeResource(resources, resId) ?: return null
+        // 크기 조절 (Filter=true로 해야 깨짐이 덜함)
+        return android.graphics.Bitmap.createScaledBitmap(src, width, height, true)
+    }
 
     private fun addMyPositionPin(kakaoMap: KakaoMap, position: LatLng) {
         val labelManager = kakaoMap.labelManager ?: return
         val layer = labelManager.layer ?: return
+        // 내 위치 아이콘 리소스가 없다면 ic_map_pin 등 아무거나 임시로 사용하세요
         val myPositionStyle = LabelStyle.from(R.drawable.ic_my_position_green)
         val myPositionStyles = LabelStyles.from(myPositionStyle)
-
         labelManager.addLabelStyles(myPositionStyles)
 
-        val options = LabelOptions.from(position).apply {
-            styles = myPositionStyles
-        }
-
-        // 핀을 클래스 변수에 저장하여 추후 위치 업데이트에 사용
+        val options = LabelOptions.from(position).apply { styles = myPositionStyles }
         myPositionPin = layer.addLabel(options)
-        Log.d("KakaoMap", "내 위치 핀 *최초* 생성 완료.")
     }
+    // [도구 함수] 현재 보고 있는 지도의 남서(SW), 북동(NE) 좌표 구하기
+    private fun getMapBounds(map: KakaoMap): List<Double>? {
+        // MapView 자체가 아직 크기가 안 잡혔으면 패스
+        if (mapView.width == 0 || mapView.height == 0) return null
 
+        // 카카오맵의 화면 좌표 변환 도구(Camera) 사용
+        // V2에서는 cameraPosition 대신 화면 포인트 변환을 사용해야 정확함
 
+        // 1. 화면 왼쪽 아래 (South-West)
+        // 화면 좌표계: (0, viewHeight)
+        val swLatLng = map.fromScreenPoint(0, mapView.height)
 
-    // SharedPreferences에서 JWT 토큰을 확인하는 함수
+        // 2. 화면 오른쪽 위 (North-East)
+        // 화면 좌표계: (viewWidth, 0)
+        val neLatLng = map.fromScreenPoint(mapView.width, 0)
+
+        if (swLatLng == null || neLatLng == null) return null
+
+        // 순서대로 [swLat, swLon, neLat, neLon] 반환
+        return listOf(
+            swLatLng.latitude,
+            swLatLng.longitude,
+            neLatLng.latitude,
+            neLatLng.longitude
+        )
+    }
     private fun isUserLoggedIn(): Boolean {
         return TokenManager.getAuthToken(this) != null
     }
 
-    // 실시간 위치 추적을 시작하는 함수
     private fun startLocationTracking() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            return
-        }
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
         if (kakaoMap == null || !::locationCallback.isInitialized) return
-
-        Log.d("MainActivity", "실시간 위치 추적 시작.")
         val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L).build()
         fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
     }
 
-    // 실시간 위치 추적을 중지하는 함수
     private fun stopLocationTracking() {
         if (!::locationCallback.isInitialized) return
-
-        Log.d("MainActivity", "실시간 위치 추적 중지.")
         fusedLocationClient.removeLocationUpdates(locationCallback)
     }
 
-    // Activity 생명주기와 MapView 생명주기 연결 및 위치 추적 제어
     override fun onResume() {
         super.onResume()
         mapView.resume()
@@ -558,5 +600,4 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         mapView.pause()
     }
-
 }

@@ -11,16 +11,16 @@ data class BinDetail(
     val id: Int,
 
     @SerializedName("body")
-    val description: String, // '이름'에 해당
+    val description: String,
 
     @SerializedName("img_url")
     val imageUrl: String?,
 
     @SerializedName("geom")
-    val geometry: BinGeometry, // 👈 (위도/경도를 담는 객체)
+    val geometry: BinGeometry,
 
     @SerializedName("categories")
-    val categoryIds: List<Int>, // 👈 (String이 아닌 Int 리스트)
+    val categoryIds: List<Int>,
 
     @SerializedName("is_congested")
     val isCongested: Boolean,
@@ -59,13 +59,13 @@ data class BinAuthor(
     val username: String
 )
 
-// --- (참고) PATCH /bins/{binId} (혼잡도) 요청 시 보낼 Body ---
+// PATCH /bins/{binId} (혼잡도) 요청 시 보낼 Body ---
 data class UpdateCongestionRequest(
     @SerializedName("is_congested")
     val isCongested: Boolean
 )
 
-// --- (참고) POST /bins/{binId}/report (신고) 요청 시 보낼 Body ---
+// POST /bins/{binId}/report (신고) 요청 시 보낼 Body ---
 data class ReportBinRequest(
     @SerializedName("user_id")
     val userId: Int, // (이건 나중에 로그인 정보에서 가져와야 함)
