@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 from db.database import engine, Base
-from api import auth, bins
+from api import auth, bins, user
 # TODO: 나중에 다른 라우터 생기면 바로바로 추가하기
 
 # .env 파일을 최상위에서 로드
@@ -25,6 +25,7 @@ async def on_startup():
 # 라우터 연결
 app.include_router(auth.router)
 app.include_router(bins.router)
+app.include_router(user.router)
 # TODO: 나중에 다른 라우터 생기면 바로바로 추가하기
 
 # 루트 API: 서버가 켜진지 확인

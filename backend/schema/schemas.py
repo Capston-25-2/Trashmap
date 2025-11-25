@@ -11,8 +11,9 @@ class CustomBaseModel(BaseModel):
 class User(CustomBaseModel):
     username: str
     level: int
+    exp: int
 
-class NicknameUpdate(BaseModel):
+class UserUpdate(BaseModel):
     username: str
 
 class BinAuthor(CustomBaseModel):
@@ -137,14 +138,11 @@ class LeaderboardResponse(BaseModel):
     total_users: int
     rankings: List[UserRanking]
 
-class PointHistoryItem(CustomBaseModel):
+class ExpHistoryItem(CustomBaseModel):
     reason: str
-    point: int
+    exp: int
     created_at: datetime
 
-class PointHistoryResponse(BaseModel):
-    data: List[PointHistoryItem]
-
-class MyActivityResponse(BaseModel):
-    pagination: dict
-    data: List[MyBin | MyReport] # MyBin이나 MyReport의 리스트
+class ExpHistoryResponse(BaseModel):
+    total_count: int
+    data: List[ExpHistoryItem]
