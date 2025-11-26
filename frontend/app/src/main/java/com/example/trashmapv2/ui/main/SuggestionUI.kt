@@ -45,8 +45,7 @@ fun SuggestionAddressBar(
     }
 }
 
-// "건의 모드" 화면 중앙 고정 핀 (화살표)
-// (기존 LocationConfirmationDialog에서 화살표 부분만 가져왔습니다)
+// "건의 모드" 화면 중앙 고정 핀
 @Composable
 fun SuggestionCenterPin(
     modifier: Modifier = Modifier
