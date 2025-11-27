@@ -49,7 +49,7 @@ class Trashcan(Base):
 
     trashcan_id = Column(BIGINT, primary_key=True)
     body = Column(TEXT, nullable=True)
-    user_id = Column(BIGINT, ForeignKey("users.user_id"), nullable=False)
+    user_id = Column(BIGINT, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     geom = Column(Geometry(geometry_type='POINT', srid=4326), nullable=False)
     img_url = Column(VARCHAR, nullable=True)
     is_congested = Column(BOOLEAN, nullable=False, default=False)
