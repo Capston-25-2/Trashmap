@@ -95,7 +95,7 @@ async def get_my_activity(
         # 응답 데이터 조립 // 그냥 자동으로 Pydantic에게 맡겨도 되는데 연습용으로 해봄
         data_list = []
         for t in trashcans:
-            data_list.append(schemas.Mybin(
+            data_list.append(schemas.MyBin(
                 trashcan_id = t.trashcan_id,
                 img_url = t.img_url,
                 body = t.body,
