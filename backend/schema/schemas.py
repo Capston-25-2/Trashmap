@@ -143,3 +143,12 @@ class ExpHistoryItem(CustomBaseModel):
 class ExpHistoryResponse(BaseModel):
     total_count: int
     data: List[ExpHistoryItem]
+
+class SuggestCreate(BaseModel):
+    lat: float = Field(..., example=37.5547)
+    lon: float = Field(..., example=126.9706)
+    dong: str
+
+class SuggestCreationResponse(BaseModel):
+    suggest_id: int
+    message: str = "건의가 성공적으로 등록되었습니다."
