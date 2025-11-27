@@ -26,7 +26,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.trashmapv2"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
@@ -99,4 +99,6 @@ dependencies {
     implementation("androidx.camera:camera-camera2:${cameraxVersion}")
     implementation("androidx.camera:camera-lifecycle:${cameraxVersion}")
     implementation("androidx.camera:camera-view:${cameraxVersion}")
+
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
 }

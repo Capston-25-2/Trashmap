@@ -1,8 +1,14 @@
 package com.example.trashmapv2.network
 
+import com.example.trashmapv2.data.ExpHistoryResponse
+import com.example.trashmapv2.data.MyBinsResponse
+import com.example.trashmapv2.data.SuggestCreateRequest
+import com.example.trashmapv2.data.SuggestCreationResponse
+import com.example.trashmapv2.data.User
 import com.google.gson.annotations.SerializedName
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
@@ -17,7 +23,7 @@ import retrofit2.http.Query
 
 // 1-1. [진짜 서버용] 로그인 요청/응답
 data class KakaoLoginRequest(
-    @SerializedName("kakao_access_token")
+    @SerializedName("access_token")
     val kakaoAccessToken: String
 )
 
@@ -39,11 +45,17 @@ data class UserInfoResponse(
 data class BinListResponse(
     @SerializedName("data") val data: List<BinItem>
 )
+data class GeomDto(
+    @SerializedName("lat") val lat: Double,
+    @SerializedName("lon") val lon: Double
+)
 
 data class BinItem(
     @SerializedName("trashcan_id") val id: Int,
-    @SerializedName("geom") val geom: Geom,
-    @SerializedName("is_congested") val isCongested: Boolean
+    @SerializedName("geom") val geom: GeomDto,
+    @SerializedName("categories") val categories: List<String>,
+    @SerializedName("is_congested") val isCongested: Boolean,
+    @SerializedName("is_verified") val isVerified: Boolean
 )
 
 data class Geom(
@@ -54,7 +66,7 @@ data class Geom(
 
 // 보낼 데이터 (Body)
 data class ReportRequest(
-    @SerializedName("report_type") val reportType: Int, // 1: 꽉참
+    @SerializedName("report_type_id") val reportType: Int, // 1: 꽉참
     @SerializedName("description") val description: String
 )
 
@@ -90,7 +102,7 @@ interface ApiService {
     // ----------------------------------------------------
     // 1. [Real Server] 로그인 (authInstance 사용)
     // ----------------------------------------------------
-    @POST("/auth/kakao/login")
+    @POST("/auth/login")
     suspend fun kakaoLogin( // 'suspend' 키워드 추가! (코루틴용)
         @Body request: KakaoLoginRequest
     ): Response<LoginResponse> // Response<T>로 감싸면 성공/실패 처리가 쉬워짐
@@ -108,7 +120,7 @@ interface ApiService {
     // ----------------------------------------------------
     @GET("/bins")
     suspend fun getBins(
-        @Header("Authorization") token: String,
+        @Header("Authorization") token: String?,
         @Query("sw_lat") swLat: Double, // 지도 영역 (기본값 대충 넣음)
         @Query("sw_lon") swLon: Double,
         @Query("ne_lat") neLat: Double,
@@ -122,10 +134,43 @@ interface ApiService {
         @Body request: ReportRequest
     ): Response<ReportResponse>
 
-    // [추가] 쓰레기통 등록 (POST)
+    // 쓰레기통 등록 (POST)
     @POST("/bins")
     suspend fun registerBin(
         @Header("Authorization") token: String,
         @Body request: TrashcanCreateRequest
     ): Response<TrashcanCreateResponse>
+
+    //  내 경험치 히스토리 조회
+    @GET("/user/exp")
+    suspend fun getExpHistory(
+        @Header("Authorization") token: String,
+        @Query("offset") offset: Int = 0,
+        @Query("limit") limit: Int = 20
+    ): Response<ExpHistoryResponse>
+
+    // [추가] 내가 등록한 쓰레기통 조회
+    @GET("/user/me/bins")
+    suspend fun getMyBins(
+        @Header("Authorization") token: String,
+        @Query("type") type: String = "bins",
+        @Query("offset") offset: Int = 0,
+        @Query("limit") limit: Int = 20
+    ): Response<MyBinsResponse>
+
+    @GET("/user/me")
+    suspend fun getMyInfo(
+        @Header("Authorization") token: String
+    ): Response<User>
+
+    @DELETE("/user/me")
+    suspend fun deleteAccount(
+        @Header("Authorization") token: String
+    ): Response<Unit>
+
+    @POST("/suggest")
+    suspend fun createSuggest(
+        @Header("Authorization") token: String,
+        @Body request: SuggestCreateRequest
+    ): Response<SuggestCreationResponse>
 }

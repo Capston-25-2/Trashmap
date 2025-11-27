@@ -7,13 +7,14 @@ import retrofit2.converter.gson.GsonConverterFactory
 import com.example.trashmapv2.BuildConfig
 
 object RetrofitClient {
-    // [수정 1] 변수명을 REAL_BASE_URL로 통일 (사용하는 곳과 이름 맞춤)
-    private const val REAL_BASE_URL = BuildConfig.SERVER_BASE_URL
+    // [1] 진짜 서버 주소 (BuildConfig에서 가져오거나 직접 입력)
+    // 에뮬레이터에서 내 컴퓨터 서버 접속 시: "http://10.0.2.2:8000/"
+    private const val REAL_BASE_URL = "http://192.168.219.141:8000/"
+    // (또는 BuildConfig.SERVER_BASE_URL 사용 가능)
 
-
+    // [2] Mock 서버 주소 (이제 안 쓰지만, 나중을 위해 남겨둬도 됨)
     private const val MOCK_BASE_URL = "https://54f61ef6-0b13-43c8-aa0f-a1034d66831c.mock.pstmn.io/"
 
-    // 공통으로 쓸 로그 인터셉터 (내용 훔쳐보기)
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BODY
     }
@@ -23,10 +24,9 @@ object RetrofitClient {
         .build()
 
     // ============================================
-    // [1번 통로] 진짜 서버용 (로그인, 회원가입 등)
+    // [1번 통로] 로그인용
     // ============================================
-    // 주의: AuthService 인터페이스 파일이 없으면 ApiService로 바꾸거나 파일을 만들어야 해!
-    val authInstance: ApiService by lazy {  // 편의상 ApiService 하나로 통일하는 게 관리하기 편할 수도 있어
+    val authInstance: ApiService by lazy {
         Retrofit.Builder()
             .baseUrl(REAL_BASE_URL)
             .client(client)
@@ -36,11 +36,12 @@ object RetrofitClient {
     }
 
     // ============================================
-    // [2번 통로] Mock 서버용 (쓰레기통 조회, 제보 등)
+    // [2번 통로] API용
     // ============================================
     val apiInstance: ApiService by lazy {
         Retrofit.Builder()
-            .baseUrl(MOCK_BASE_URL)
+            // .baseUrl(MOCK_BASE_URL)
+            .baseUrl(REAL_BASE_URL)
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()

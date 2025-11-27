@@ -131,14 +131,24 @@ class MainActivity : AppCompatActivity() {
 
                 // 건의 모드 활성화 시 카메라 이동 멈춤 감지 (주소 변환)
                 LaunchedEffect(isSuggestionModeActive) {
-                    if (isSuggestionModeActive) {
-                        kakaoMap?.setOnCameraMoveEndListener { _, cameraPosition, _ ->
-                            val mapCenter = cameraPosition.position
-                            currentAddress = getAddressFromCoordinates(mapCenter)
-                            Log.d("MainActivity", "지도 멈춤: 주소 업데이트 완료")
+                    val map = kakaoMap
+                    if (map != null) {
+                        if (isSuggestionModeActive) {
+                            // [건의 모드] 멈추면 주소 찾기
+                            map.setOnCameraMoveEndListener { _, cameraPosition, _ ->
+                                val mapCenter = cameraPosition.position
+                                currentAddress = getAddressFromCoordinates(mapCenter)
+                                Log.d("MainActivity", "지도 멈춤(건의): 주소 업데이트")
+                            }
+                        } else {
+                            map.setOnCameraMoveEndListener { _, cameraPosition, _ ->
+                                // 줌 레벨 체크 후 서버 요청
+                                if (cameraPosition.zoomLevel >= MIN_ZOOM_LEVEL_FOR_API) {
+                                    fetchBinsFromServer(map)
+                                    Log.d("MainActivity", "지도 멈춤(일반): 쓰레기통 조회 요청")
+                                }
+                            }
                         }
-                    } else {
-                        kakaoMap?.setOnCameraMoveEndListener(null)
                     }
                 }
 
@@ -170,8 +180,13 @@ class MainActivity : AppCompatActivity() {
                             onConfirmClick = {
                                 val currentMapCenter = kakaoMap?.cameraPosition?.position
                                 if (currentMapCenter != null) {
-                                    Toast.makeText(this@MainActivity, "위치: ${currentMapCenter.latitude}", Toast.LENGTH_SHORT).show()
-                                    // TODO: 건의 등록 API 연결 필요
+                                    sendSuggestionToServer(
+                                        lat = currentMapCenter.latitude,
+                                        lon = currentMapCenter.longitude,
+                                        address = currentAddress
+                                    )
+                                }else {
+                                    Toast.makeText(this@MainActivity, "지도가 준비되지 않았습니다.", Toast.LENGTH_SHORT).show()
                                 }
                                 isSuggestionModeActive = false
                             }
@@ -310,7 +325,8 @@ class MainActivity : AppCompatActivity() {
     // 쓰레기통 목록 API 호출 및 핀 등록 함수
     private fun fetchBinsFromServer(kakaoMap: KakaoMap) {
         lifecycleScope.launch {
-            val token = TokenManager.getAuthToken(this@MainActivity) ?: return@launch
+            val rawToken = TokenManager.getAuthToken(this@MainActivity)
+            val authHeader = if (rawToken != null) "Bearer $rawToken" else null
 
             val bounds = getMapBounds(kakaoMap)
             if (bounds == null) {
@@ -323,7 +339,7 @@ class MainActivity : AppCompatActivity() {
 
             try {
                 val response = RetrofitClient.apiInstance.getBins(
-                    token = "Bearer $token",
+                    token = authHeader,
                     swLat = swLat,
                     swLon = swLon,
                     neLat = neLat,
@@ -334,15 +350,22 @@ class MainActivity : AppCompatActivity() {
                     val serverBinList = response.body()?.data ?: emptyList()
                     Log.d("MainActivity", "데이터 로드 성공: ${serverBinList.size}개")
 
-                    currentBinList = serverBinList.map {
+                    currentBinList = serverBinList.map { serverData ->
                         BinDetail(
-                            id = it.id,
-                            description = "서버 데이터 ${it.id}",
-                            categoryIds = listOf(1, 2),
+                            id = serverData.id,
+
+                            geometry = BinGeometry(
+                                latitude = serverData.geom.lat,
+                                longitude = serverData.geom.lon
+                            ),
+
+                            description = "쓰레기통 (${serverData.categories.joinToString()})",
                             imageUrl = "https://via.placeholder.com/150",
-                            geometry = BinGeometry(it.geom.lat, it.geom.lon),
-                            isCongested = it.isCongested,
-                            isVerified = true,
+
+                            categoryIds = listOf(1),
+
+                            isCongested = serverData.isCongested,
+                            isVerified = serverData.isVerified,
                             author = null,
                             createdAt = "2024-01-01"
                         )
@@ -416,6 +439,12 @@ class MainActivity : AppCompatActivity() {
             }
             startLocationTracking()
 
+            kakaoMap.setOnCameraMoveEndListener { map, cameraPosition, gestureType ->
+                if (cameraPosition.zoomLevel >= MIN_ZOOM_LEVEL_FOR_API) {
+                    fetchBinsFromServer(map)
+                }
+            }
+
             // 초기 쓰레기통 데이터 로드
             fetchBinsFromServer(kakaoMap)
 
@@ -451,7 +480,7 @@ class MainActivity : AppCompatActivity() {
     private fun addMissionPinsToMap(kakaoMap: KakaoMap, missions: List<MissionInfo>) {
         val labelManager = kakaoMap.labelManager ?: return
         val layer = labelManager.layer ?: return
-        val style = LabelStyle.from(R.drawable.ic_mission_pin) // TODO: 미션 전용 아이콘 리소스 적용 필요
+        val style = LabelStyle.from(R.drawable.ic_mission_pin)
         val styles = LabelStyles.from(style)
         labelManager.addLabelStyles(styles)
 
@@ -473,13 +502,13 @@ class MainActivity : AppCompatActivity() {
         val redPinRes = R.drawable.ic_map_pin_red
 
         // 일반 핀 스타일 (줌 레벨별 크기)
-        val normalSmall = LabelStyle.from(getResizedBitmap(normalPinRes, 60, 70)).setZoomLevel(12)
+        val normalSmall = LabelStyle.from(getResizedBitmap(normalPinRes, 60, 70)).setZoomLevel(MIN_ZOOM_LEVEL_FOR_API)
         val normalBig = LabelStyle.from(getResizedBitmap(normalPinRes, 90, 100)).setZoomLevel(15)
         val normalBigBig = LabelStyle.from(getResizedBitmap(normalPinRes, 120, 130)).setZoomLevel(17)
         val stylesNormal = LabelStyles.from(normalSmall, normalBig,normalBigBig)
 
         // 혼잡 핀 스타일 (줌 레벨별 크기)
-        val redSmall = LabelStyle.from(getResizedBitmap(redPinRes, 60, 60)).setZoomLevel(12)
+        val redSmall = LabelStyle.from(getResizedBitmap(redPinRes, 60, 60)).setZoomLevel(MIN_ZOOM_LEVEL_FOR_API)
         val redBig = LabelStyle.from(getResizedBitmap(redPinRes, 90, 90)).setZoomLevel(15)
         val redBigBig = LabelStyle.from(getResizedBitmap(redPinRes, 120, 120)).setZoomLevel(17)
         val stylesRed = LabelStyles.from(redSmall, redBig,redBigBig)
@@ -549,6 +578,41 @@ class MainActivity : AppCompatActivity() {
         if (!::locationCallback.isInitialized) return
         fusedLocationClient.removeLocationUpdates(locationCallback)
     }
+
+    // 건의 사항 서버 전송 함수
+    private fun sendSuggestionToServer(lat: Double, lon: Double, address: String) {
+        lifecycleScope.launch {
+            val token = TokenManager.getAuthToken(this@MainActivity)
+            if (token == null) {
+                Toast.makeText(this@MainActivity, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            try {
+                //  요청 데이터 생성
+                val request = com.example.trashmapv2.data.SuggestCreateRequest(
+                    lat = lat,
+                    lon = lon,
+                    dong = address
+                )
+
+                // 3. 서버 전송
+                val response = RetrofitClient.apiInstance.createSuggest("Bearer $token", request)
+
+                if (response.isSuccessful) {
+                    Toast.makeText(this@MainActivity, "건의가 접수되었습니다", Toast.LENGTH_LONG).show()
+                    Log.d("Suggest", "성공: ${response.body()?.message}")
+                } else {
+                    Toast.makeText(this@MainActivity, "전송 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
+                    Log.e("Suggest", "실패: ${response.errorBody()?.string()}")
+                }
+            } catch (e: Exception) {
+                Log.e("Suggest", "통신 에러", e)
+                Toast.makeText(this@MainActivity, "오류가 발생했습니다.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
 
     override fun onResume() {
         super.onResume()
