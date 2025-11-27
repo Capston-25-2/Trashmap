@@ -57,7 +57,7 @@ async def patch_user_me(
     return current_user
 
 # GET /user/me/bins API
-@router("/me/bins", response_model=Union[schemas.MyBinsResponse, schemas.MyReportsResponse])
+@router.get("/me/bins", response_model=Union[schemas.MyBinsResponse, schemas.MyReportsResponse])
 async def get_my_activity(
     type: str = Query(..., description="'bins' 또는 'reports'"),
     offset: int = 0, # 안보내면 기본값 0
