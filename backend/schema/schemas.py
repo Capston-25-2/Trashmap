@@ -37,10 +37,6 @@ class TrashcanCategory(CustomBaseModel):
     category_id: int
     category_name: str
 
-class Geom(BaseModel):
-    lat: float
-    lon: float
-
 # 실제 작동하지는 않음 내부적으로 이미지를 받아서 처리함 bin.py에서
 class TrashcanCreate(BaseModel):
     categories: List[int] = Field(..., example=[1, 2])
@@ -72,7 +68,8 @@ class JobAcceptedResponse(BaseModel):
 # 공통 필드 수정 필요시 이것만 수정
 class BinMapPin(CustomBaseModel):
     trashcan_id: int
-    geom: Geom
+    lat: float
+    lon: float
     categories: List[str]
     is_congested: bool
     is_verified: bool

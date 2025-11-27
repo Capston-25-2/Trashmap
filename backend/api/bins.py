@@ -127,7 +127,8 @@ async def get_trashcan_in_bounds(
         data_list.append(
             schemas.BinMapPin(
                 trashcan_id = trashcan.trashcan_id,
-                geom = schemas.Geom(lat = trashcan.latitude, lon = trashcan.longitude),
+                lat = trashcan.latitude,
+                lon = trashcan.longitude,
                 categories = [cat.category_name for cat in trashcan.categories],
                 is_congested = trashcan.is_congested,
                 is_verified = trashcan.is_verified

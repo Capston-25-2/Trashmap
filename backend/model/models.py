@@ -4,6 +4,7 @@ from sqlalchemy import (Column, BIGINT, INT, TEXT, VARCHAR,
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.hybrid import hybrid_property
 from geoalchemy2 import Geometry
+from geoalchemy2 import to_shape
 from shapely.wkt import loads as wkt_loads
 
 from db.database import Base
@@ -67,15 +68,11 @@ class Trashcan(Base):
 
     @hybrid_property
     def latitude(self):
-        if self.geom is not None:
-            return wkt_loads(str(self.geom)).y
-        return None
+        return to_shape(self.geom).y if self.geom else None
 
     @hybrid_property
     def longitude(self):
-        if self.geom is not None:
-            return wkt_loads(str(self.geom)).x
-        return None
+        return to_shape(self.geom).x if self.geom else None
 
     def __repr__(self):
         return f"<Trashcan(trashcan_id={self.trashcan_id})>"
