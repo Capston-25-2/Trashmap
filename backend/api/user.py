@@ -90,7 +90,7 @@ async def get_my_activity(
         trashcans = result.scalars().all()
 
         count_result = await db.execute(count_query)
-        total_count = count_result.scalars()
+        total_count = count_result.scalar()
 
         # 응답 데이터 조립 // 그냥 자동으로 Pydantic에게 맡겨도 되는데 연습용으로 해봄
         data_list = []
