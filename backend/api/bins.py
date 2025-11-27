@@ -127,7 +127,8 @@ async def get_trashcan_in_bounds(
         data_list.append(
             schemas.BinMapPin(
                 trashcan_id = trashcan.trashcan_id,
-                geom = schemas.Geom(lat = trashcan.latitude, lon = trashcan.longitude),
+                lat = trashcan.latitude,
+                lon = trashcan.longitude,
                 categories = [cat.category_name for cat in trashcan.categories],
                 is_congested = trashcan.is_congested,
                 is_verified = trashcan.is_verified
@@ -188,7 +189,7 @@ async def create_trashcan(
     try:
         db.add(db_trashcan)
         await db.commit()
-        await db.refresh(db.trashcan)
+        await db.refresh(db_trashcan)
     except Exception as e:
         raise HTTPException(status_code = 500, detail = f"DB 저장에 실패했습니다: {e}")
     

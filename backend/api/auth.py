@@ -15,7 +15,7 @@ from db.database import get_db
 # .env 파일에서 환경 변수 로드
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "default_secret_key")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1000000)) # 여기 숫자 개발 완료 시 30으로 수정
 
 router = APIRouter(
     prefix="/auth", # 이 파일의 모든 경로는 /auth 로 시작

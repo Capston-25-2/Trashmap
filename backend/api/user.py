@@ -57,7 +57,7 @@ async def patch_user_me(
     return current_user
 
 # GET /user/me/bins API
-@router("/me/bins", response_model=Union[schemas.MyBinsResponse, schemas.MyReportsResponse])
+@router.get("/me/bins", response_model=Union[schemas.MyBinsResponse, schemas.MyReportsResponse])
 async def get_my_activity(
     type: str = Query(..., description="'bins' 또는 'reports'"),
     offset: int = 0, # 안보내면 기본값 0
@@ -86,16 +86,16 @@ async def get_my_activity(
         )
 
         # DB 실행
-        result = db.execute(query)
+        result = await db.execute(query)
         trashcans = result.scalars().all()
 
-        count_result = db.execute(count_query)
-        total_count = count_result.scalars()
+        count_result = await db.execute(count_query)
+        total_count = count_result.scalar()
 
         # 응답 데이터 조립 // 그냥 자동으로 Pydantic에게 맡겨도 되는데 연습용으로 해봄
         data_list = []
         for t in trashcans:
-            data_list.append(schemas.Mybin(
+            data_list.append(schemas.MyBin(
                 trashcan_id = t.trashcan_id,
                 img_url = t.img_url,
                 body = t.body,
@@ -164,22 +164,6 @@ async def get_my_activity(
         )
     
 
-# GET /user/{userId} API // 쓰레기통 조회 화면이나 리더보드 페이지에서 사용(로그인 불필요)
-@router.get("/{userId}", response_model=schemas.User)
-async def get_user_user_id(
-    userId: int,
-    db: AsyncSession = Depends(get_db)
-):
-    user = await db.get(models.User, userId)
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="해당 사용자를 찾을 수 없습니다."
-        )
-
-    return user
-
 # GET /user/exp API
 @router.get("/exp", response_model=schemas.ExpHistoryResponse)
 async def get_my_exp(
@@ -212,3 +196,19 @@ async def get_my_exp(
         total_count = total_count,
         data = history_list
     )
+
+# GET /user/{userId} API // 쓰레기통 조회 화면이나 리더보드 페이지에서 사용(로그인 불필요)
+@router.get("/{userId}", response_model=schemas.User)
+async def get_user_user_id(
+    userId: int,
+    db: AsyncSession = Depends(get_db)
+):
+    user = await db.get(models.User, userId)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="해당 사용자를 찾을 수 없습니다."
+        )
+
+    return user

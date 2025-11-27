@@ -4,6 +4,7 @@ from sqlalchemy import (Column, BIGINT, INT, TEXT, VARCHAR,
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.hybrid import hybrid_property
 from geoalchemy2 import Geometry
+from geoalchemy2 import to_shape
 from shapely.wkt import loads as wkt_loads
 
 from db.database import Base
@@ -38,8 +39,7 @@ class User(Base):
     trashcans = relationship("Trashcan", back_populates="user")
     reports = relationship("Report", back_populates="user")
     exp_history = relationship("ExpHistory", back_populates="user")
-    opinions = relationship("Opinion", back_populates="user")
-    
+    suggest = relationship("Suggest", back_populates="user")
 
     def __repr__(self):
         return f"<User(user_id={self.user_id}, username='{self.username}')>"
@@ -63,19 +63,14 @@ class Trashcan(Base):
     categories = relationship("TrashcanCategory", secondary=trashcan_to_category, back_populates="trashcans")
     reports = relationship("Report", back_populates="trashcan")
     issues = relationship("Issue", back_populates="trashcan")
-    opinions = relationship("Opinion", back_populates="trashcans")
 
     @hybrid_property
     def latitude(self):
-        if self.geom is not None:
-            return wkt_loads(str(self.geom)).y
-        return None
+        return to_shape(self.geom).y if self.geom else None
 
     @hybrid_property
     def longitude(self):
-        if self.geom is not None:
-            return wkt_loads(str(self.geom)).x
-        return None
+        return to_shape(self.geom).x if self.geom else None
 
     def __repr__(self):
         return f"<Trashcan(trashcan_id={self.trashcan_id})>"
@@ -151,3 +146,17 @@ class ExpHistory(Base):
     
     def __repr__(self):
         return f"<ExpHistory(exp_id={self.exp_id}, reason='{self.reason}')>"
+
+class Suggest(Base):
+    __tablename__ = 'suggest'
+    suggest_id = Column(BIGINT, primary_key=True)
+    user_id = Column(BIGINT, ForeignKey("users.user_id"), nullable=False)
+    geom = Column(Geometry(geometry_type='POINT', srid=4326), nullable=False)
+    dong = Column(VARCHAR, nullable=True) # 동 구분 로직 구현 완료 시 False로 변경 필요
+    status = Column(VARCHAR, nullable=False, default='pending') # 'pending', 'approved'
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    user = relationship("User", back_populates="suggest")
+
+    def __repr__(self):
+        return f"<Suggest(suggest_id={self.suggest_id}, dong='{self.dong}, status='{self.status})>"
