@@ -153,7 +153,7 @@ class Suggest(Base):
     user_id = Column(BIGINT, ForeignKey("users.user_id"), nullable=False)
     geom = Column(Geometry(geometry_type='POINT', srid=4326), nullable=False)
     dong = Column(VARCHAR, nullable=True) # 동 구분 로직 구현 완료 시 False로 변경 필요
-    status = Column(VARCHAR, nullable=False)
+    status = Column(VARCHAR, nullable=False, default='pending') # 'pending', 'approved'
     created_at = Column(TIMESTAMP, server_default=func.now())
 
     user = relationship("User", back_populates="suggest")
