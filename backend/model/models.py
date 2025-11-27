@@ -4,7 +4,7 @@ from sqlalchemy import (Column, BIGINT, INT, TEXT, VARCHAR,
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.hybrid import hybrid_property
 from geoalchemy2 import Geometry
-from geoalchemy2 import to_shape
+from geoalchemy2.shape import to_shape
 from shapely.wkt import loads as wkt_loads
 
 from db.database import Base
