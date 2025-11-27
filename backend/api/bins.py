@@ -189,7 +189,7 @@ async def create_trashcan(
     try:
         db.add(db_trashcan)
         await db.commit()
-        await db.refresh(db.trashcan)
+        await db.refresh(db_trashcan)
     except Exception as e:
         raise HTTPException(status_code = 500, detail = f"DB 저장에 실패했습니다: {e}")
     
