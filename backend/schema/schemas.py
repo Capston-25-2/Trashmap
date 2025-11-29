@@ -169,3 +169,16 @@ class SuggestListResponse(CustomBaseModel):
 
 class SuggestStatusUpdate(BaseModel):
     status: str = Field(..., description="변경할 상태 (pending, apporved)")
+
+class IssueItem(CustomBaseModel):
+    issue_id: int
+    issue_type: str
+    status: str
+    created_at: datetime
+    resolved_at: Optional[datetime]
+    trashcan: BinMapPin
+    report_count: int
+
+class IssueListResponse(BaseModel):
+    total_count: int
+    data: List[IssueItem]
