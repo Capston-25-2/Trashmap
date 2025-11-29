@@ -166,3 +166,6 @@ class SuggestItem(CustomBaseModel):
 class SuggestListResponse(CustomBaseModel):
     total_count: int
     data: List[SuggestItem]
+
+class SuggestStatusUpdate(BaseModel):
+    status: str = Field(..., description="변경할 상태 (pending, apporved)")

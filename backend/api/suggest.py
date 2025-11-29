@@ -90,3 +90,36 @@ async def get_suggest(
         total_count = total_count,
         data = suggestions
     )
+
+# PATCH /suggest/{suggestId} API
+@router.patch("/{suggestId}", response_model=schemas.SuggestItem)
+async def update_suggest_status(
+    suggestId: int,
+    update_data: schemas.SuggestStatusUpdate,
+    current_user: models.User = Depends(check_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    # 건의사항 조회
+    suggest = await db.get(models.Suggest, suggestId)
+
+    if not suggest:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="해당 건의사항을 찾을 수 없습니다."
+        )
+    
+    # 상태 업데이트
+    suggest.status = update_data.status
+
+    # DB 업데이트
+    try:
+        await db.commit()
+        await db.refresh(suggest)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            detail="상태 업데이트 실패: {e}"
+        )
+    
+    return suggest
