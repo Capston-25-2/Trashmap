@@ -158,5 +158,13 @@ class Suggest(Base):
 
     user = relationship("User", back_populates="suggest")
 
+    @hybrid_property
+    def latitude(self):
+        return to_shape(self.geom).y if self.geom else None
+
+    @hybrid_property
+    def longitude(self):
+        return to_shape(self.geom).x if self.geom else None
+    
     def __repr__(self):
-        return f"<Suggest(suggest_id={self.suggest_id}, dong='{self.dong}, status='{self.status})>"
+        return f"<Suggest(suggest_id={self.suggest_id}, dong='{self.dong}', status='{self.status}')>"

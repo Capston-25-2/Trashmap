@@ -68,8 +68,8 @@ class JobAcceptedResponse(BaseModel):
 # 공통 필드 수정 필요시 이것만 수정
 class BinMapPin(CustomBaseModel):
     trashcan_id: int
-    lat: float
-    lon: float
+    latitude: float
+    longitude: float
     categories: List[str]
     is_congested: bool
     is_verified: bool
@@ -153,3 +153,16 @@ class SuggestCreate(BaseModel):
 class SuggestCreationResponse(BaseModel):
     suggest_id: int
     message: str = "건의가 성공적으로 등록되었습니다."
+
+class SuggestItem(CustomBaseModel):
+    suggest_id: int
+    dong: str
+    status: str
+    created_at: datetime
+    lat: float 
+    lon: float
+    user_id: int
+
+class SuggestListResponse(CustomBaseModel):
+    total_count: int
+    data: List[SuggestItem]
