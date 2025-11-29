@@ -17,7 +17,7 @@ router = APIRouter(
     tags=["Suggest"]
 )
 
-# POST /suggest API 구현
+# POST /suggest API
 @router.post("/", response_model=schemas.SuggestCreationResponse, status_code=status.HTTP_201_CREATED)
 async def create_suggest(
     suggest_data: schemas.SuggestCreate,
@@ -51,7 +51,7 @@ async def create_suggest(
         message="건의가 성공적으로 접수되었습니다."
     )
 
-# GET /suggest API 구현
+# GET /suggest API
 @router.get("/", response_model=schemas.SuggestListResponse)
 async def get_suggest(
     dong: Optional[List[str]] = Query(None, description="동 이름 필터(여러 개 가능)"),
