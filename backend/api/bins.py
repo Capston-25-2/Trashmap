@@ -351,7 +351,8 @@ async def create_report(
 
     # 기본 검증 (신고하려는 쓰레기통과 신고의 유형이 유효한기 검증)
     # 쓰레기통 확인
-    trashcan = await get_db(models.Trashcan, binId)
+    trashcan = await db.get(models.Trashcan, binId)
+
     if not trashcan:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
