@@ -118,7 +118,7 @@ async def update_suggest_status(
     except Exception as e:
         await db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="상태 업데이트 실패: {e}"
         )
     
