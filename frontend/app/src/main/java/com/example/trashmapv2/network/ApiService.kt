@@ -45,23 +45,19 @@ data class UserInfoResponse(
 data class BinListResponse(
     @SerializedName("data") val data: List<BinItem>
 )
-data class GeomDto(
-    @SerializedName("lat") val lat: Double,
-    @SerializedName("lon") val lon: Double
-)
+
 
 data class BinItem(
     @SerializedName("trashcan_id") val id: Int,
-    @SerializedName("geom") val geom: GeomDto,
-    @SerializedName("categories") val categories: List<String>,
+
+    @SerializedName("lat") val lat: Double,
+    @SerializedName("lon") val lon: Double,
+
+    @SerializedName("categories") val categories: List<String>?,
     @SerializedName("is_congested") val isCongested: Boolean,
     @SerializedName("is_verified") val isVerified: Boolean
 )
 
-data class Geom(
-    @SerializedName("lat") val lat: Double,
-    @SerializedName("lon") val lon: Double
-)
 
 
 // 보낼 데이터 (Body)
@@ -124,7 +120,8 @@ interface ApiService {
         @Query("sw_lat") swLat: Double, // 지도 영역 (기본값 대충 넣음)
         @Query("sw_lon") swLon: Double,
         @Query("ne_lat") neLat: Double,
-        @Query("ne_lon") neLon: Double
+        @Query("ne_lon") neLon: Double,
+        @Query("categories") categories: List<Int>?
     ): Response<BinListResponse>
 
     @POST("/bins/{binId}/report")

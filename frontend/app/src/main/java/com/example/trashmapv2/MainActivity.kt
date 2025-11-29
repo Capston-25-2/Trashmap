@@ -62,6 +62,8 @@ import com.example.trashmapv2.ui.theme.TrashMapAppV2Theme
 import com.example.trashmapv2.data.MissionInfo
 import com.example.trashmapv2.network.ReportRequest
 import com.example.trashmapv2.network.RetrofitClient
+import com.kakao.vectormap.label.CompetitionType
+import com.kakao.vectormap.label.OrderingType
 
 // 메인 액티비티 (지도, 위치, UI 통합)
 class MainActivity : AppCompatActivity() {
@@ -78,10 +80,24 @@ class MainActivity : AppCompatActivity() {
     private var myPositionPin: Label? = null
     private lateinit var locationCallback: LocationCallback
 
-    // 현재 지도에 표시된 쓰레기통 데이터 (핀 클릭 시 사용)
+    // [변경] 원본 데이터 저장용 (서버에서 받은 거 통째로 보관)
+    private var allDownloadedBins: List<BinDetail> = emptyList()
+
+    // [유지] 지도에 표시 중인 데이터 (필터링 된 결과)
     private var currentBinList: List<BinDetail> = emptyList()
+
+    // [유지] 현재 켜져 있는 필터 (기본값: 1, 2, 3 전부)
+    private var selectedCategoryIds by mutableStateOf(emptySet<Int>())
     // 현재 지도에 표시된 미션 데이터 (핀 클릭 시 사용)
     private var currentMissionList: List<MissionInfo> = emptyList()
+
+    // [최적화] 핀 스타일을 미리 로딩해서 저장해둘 변수
+    private var cachedNormalStyles: LabelStyles? = null
+    private var cachedRedStyles: LabelStyles? = null
+
+    private var binLayer: com.kakao.vectormap.label.LabelLayer? = null
+
+    private var userLayer: com.kakao.vectormap.label.LabelLayer? = null
 
     // UI 상태: 선택된 쓰레기통 정보 (바텀시트 표시용)
     var selectedBinInfo by mutableStateOf<BinDetail?>(null)
@@ -91,7 +107,7 @@ class MainActivity : AppCompatActivity() {
         private set
 
     // API 호출 제한 레벨 (이 값보다 줌 레벨이 낮으면 호출 안 함)
-    private val MIN_ZOOM_LEVEL_FOR_API = 12
+    private val MIN_ZOOM_LEVEL_FOR_API = 15
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -194,7 +210,29 @@ class MainActivity : AppCompatActivity() {
                     } else {
                         // 일반 모드 UI (상단 필터, 하단 네비게이션, 내 위치 버튼)
                         MapFilterTopBar(
-                            modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top))
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top)),
+
+                            selectedIds = selectedCategoryIds,
+
+                            onFilterClick = { clickedId ->
+                                // [핵심 로직 수정]
+                                val newSelection = if (selectedCategoryIds.contains(clickedId) && selectedCategoryIds.size == 1) {
+                                    // 상황 A: "이미 나 혼자 켜져 있는데 또 눌렀어" -> 끄기 (전체 보기로 돌아감)
+                                    emptySet()
+                                } else {
+                                    // 상황 B: "다른 게 켜져 있거나, 전체 보기 상태야" -> 나만 켜기 (단일 선택)
+                                    setOf(clickedId)
+                                }
+
+                                selectedCategoryIds = newSelection
+
+                                // 지도 새로고침
+                                if (kakaoMap != null) {
+                                    refreshMapPins(kakaoMap!!)
+                                }
+                            }
                         )
                         AppBottomNavigation(
                             modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom)),
@@ -324,6 +362,12 @@ class MainActivity : AppCompatActivity() {
 
     // 쓰레기통 목록 API 호출 및 핀 등록 함수
     private fun fetchBinsFromServer(kakaoMap: KakaoMap) {
+        val currentZoom = kakaoMap.cameraPosition?.zoomLevel ?: 0
+        if (currentZoom < 15) {
+            kakaoMap.labelManager?.layer?.removeAll()
+            Log.d("Map", "줌 레벨이 너무 낮아 요청 중단")
+            return
+        }
         lifecycleScope.launch {
             val rawToken = TokenManager.getAuthToken(this@MainActivity)
             val authHeader = if (rawToken != null) "Bearer $rawToken" else null
@@ -343,34 +387,40 @@ class MainActivity : AppCompatActivity() {
                     swLat = swLat,
                     swLon = swLon,
                     neLat = neLat,
-                    neLon = neLon
+                    neLon = neLon,
+                    categories = null
                 )
 
                 if (response.isSuccessful) {
                     val serverBinList = response.body()?.data ?: emptyList()
-                    Log.d("MainActivity", "데이터 로드 성공: ${serverBinList.size}개")
 
-                    currentBinList = serverBinList.map { serverData ->
+                    allDownloadedBins = serverBinList.map { serverBin ->
                         BinDetail(
-                            id = serverData.id,
+                            id = serverBin.id,
 
+                            // [수정] serverBin.geom.lat -> serverBin.lat 로 변경
                             geometry = BinGeometry(
-                                latitude = serverData.geom.lat,
-                                longitude = serverData.geom.lon
+                                latitude = serverBin.lat,
+                                longitude = serverBin.lon
                             ),
 
-                            description = "쓰레기통 (${serverData.categories.joinToString()})",
-                            imageUrl = "https://via.placeholder.com/150",
+                            // [수정] 서버가 description을 안 주므로, 우리가 직접 만들어야 함
+                            description = "쓰레기통 (${serverBin.categories?.joinToString() ?: "정보 없음"})",
 
-                            categoryIds = listOf(1),
+                            // [수정] 서버가 리스트 조회에선 img_url을 안 줌 -> null 처리
+                            imageUrl = null,
 
-                            isCongested = serverData.isCongested,
-                            isVerified = serverData.isVerified,
+                            // 카테고리 이름 -> ID 변환 로직은 유지
+                            categoryIds = convertCategoryNamesToIds(serverBin.categories),
+
+                            isCongested = serverBin.isCongested,
+                            isVerified = serverBin.isVerified,
                             author = null,
                             createdAt = "2024-01-01"
                         )
                     }
-                    addBinPinsToMap(kakaoMap, currentBinList)
+
+                    refreshMapPins(kakaoMap)
                 } else {
                     Log.e("MainActivity", "실패: ${response.code()}")
                 }
@@ -383,6 +433,8 @@ class MainActivity : AppCompatActivity() {
     // 내 위치로 카메라 이동 함수
     private fun moveToMyLocation() {
         val map = kakaoMap ?: return
+
+        // 권한 체크
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             Toast.makeText(this, "위치 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
             return
@@ -392,9 +444,20 @@ class MainActivity : AppCompatActivity() {
             .addOnSuccessListener { location ->
                 if (location != null) {
                     val myPosition = LatLng.from(location.latitude, location.longitude)
+
+                    // 1. 카메라 이동 (원래 있던 코드)
                     val cameraUpdate = CameraUpdateFactory.newCenterPosition(myPosition, 16)
                     val animation = CameraAnimation.from(500)
                     map.moveCamera(cameraUpdate, animation)
+
+                    // 2. [추가] 핀이 없으면 새로 찍고, 있으면 위치 옮기기 (이게 핵심!)
+                    if (myPositionPin == null) {
+                        addMyPositionPin(map, myPosition)
+                    } else {
+                        myPositionPin?.moveTo(myPosition)
+                    }
+                } else {
+                    Toast.makeText(this, "현재 위치를 찾을 수 없습니다.", Toast.LENGTH_SHORT).show()
                 }
             }
     }
@@ -421,6 +484,48 @@ class MainActivity : AppCompatActivity() {
         override fun onMapReady(kakaoMap: KakaoMap) {
             Log.d("KakaoMap", "onMapReady successful")
             this@MainActivity.kakaoMap = kakaoMap
+
+            // [최적화] 1. 여기서 비트맵을 딱 한 번만 디코딩해서 스타일 생성
+            val labelManager = kakaoMap.labelManager
+
+            /// 1. 쓰레기통 레이어 (바닥)
+            binLayer = labelManager?.getLayer("bin_layer")
+                ?: labelManager?.addLayer(
+                    com.kakao.vectormap.label.LabelLayerOptions.from("bin_layer")
+                        .setZOrder(1000)
+                        .setCompetitionType(CompetitionType.None)
+                        .setOrderingType(OrderingType.Rank)
+                )
+
+            // 2. 유저 위치 레이어 (제일 위)
+            userLayer = labelManager?.getLayer("user_layer")
+                ?: labelManager?.addLayer(
+                    com.kakao.vectormap.label.LabelLayerOptions.from("user_layer")
+                        .setZOrder(2000)
+                        .setCompetitionType(CompetitionType.None)
+                        .setOrderingType(OrderingType.Rank)
+                )
+
+            if (labelManager != null) {
+                val normalPinRes = R.drawable.ic_map_pin
+                val redPinRes = R.drawable.ic_map_pin_red
+
+                // 일반 핀 스타일 생성
+                val normalSmall = LabelStyle.from(getResizedBitmap(normalPinRes, 80, 80)).setZoomLevel(MIN_ZOOM_LEVEL_FOR_API)
+                val normalBig = LabelStyle.from(getResizedBitmap(normalPinRes, 90, 90)).setZoomLevel(17)
+                val normalBigBig = LabelStyle.from(getResizedBitmap(normalPinRes, 120, 120)).setZoomLevel(19)
+                cachedNormalStyles = LabelStyles.from(normalSmall, normalBig, normalBigBig)
+
+                // 혼잡 핀 스타일 생성
+                val redSmall = LabelStyle.from(getResizedBitmap(redPinRes, 80, 80)).setZoomLevel(MIN_ZOOM_LEVEL_FOR_API)
+                val redBig = LabelStyle.from(getResizedBitmap(redPinRes, 90, 90)).setZoomLevel(17)
+                val redBigBig = LabelStyle.from(getResizedBitmap(redPinRes, 120, 120)).setZoomLevel(19)
+                cachedRedStyles = LabelStyles.from(redSmall, redBig, redBigBig)
+
+                // 2. 매니저에 스타일 추가 (이것도 한 번만 하면 됨)
+                labelManager.addLabelStyles(cachedNormalStyles)
+                labelManager.addLabelStyles(cachedRedStyles)
+            }
 
             // 실시간 위치 추적 콜백 설정
             locationCallback = object : LocationCallback() {
@@ -495,29 +600,19 @@ class MainActivity : AppCompatActivity() {
 
     // 쓰레기통 핀 등록 함수 (줌 레벨별 스타일 적용)
     private fun addBinPinsToMap(kakaoMap: KakaoMap, bins: List<BinDetail>) {
-        val labelManager = kakaoMap.labelManager ?: return
-        val layer = labelManager.layer ?: return
+        val layer = binLayer ?: return
 
-        val normalPinRes = R.drawable.ic_map_pin
-        val redPinRes = R.drawable.ic_map_pin_red
+        Log.d("MapDebug", "지도에 그릴 핀 개수: ${bins.size}")
 
-        // 일반 핀 스타일 (줌 레벨별 크기)
-        val normalSmall = LabelStyle.from(getResizedBitmap(normalPinRes, 60, 70)).setZoomLevel(MIN_ZOOM_LEVEL_FOR_API)
-        val normalBig = LabelStyle.from(getResizedBitmap(normalPinRes, 90, 100)).setZoomLevel(15)
-        val normalBigBig = LabelStyle.from(getResizedBitmap(normalPinRes, 120, 130)).setZoomLevel(17)
-        val stylesNormal = LabelStyles.from(normalSmall, normalBig,normalBigBig)
+        layer.removeAll() // 싹 지움
 
-        // 혼잡 핀 스타일 (줌 레벨별 크기)
-        val redSmall = LabelStyle.from(getResizedBitmap(redPinRes, 60, 60)).setZoomLevel(MIN_ZOOM_LEVEL_FOR_API)
-        val redBig = LabelStyle.from(getResizedBitmap(redPinRes, 90, 90)).setZoomLevel(15)
-        val redBigBig = LabelStyle.from(getResizedBitmap(redPinRes, 120, 120)).setZoomLevel(17)
-        val stylesRed = LabelStyles.from(redSmall, redBig,redBigBig)
-
-        labelManager.addLabelStyles(stylesNormal)
-        labelManager.addLabelStyles(stylesRed)
+        // [최적화] 3. 여기서 디코딩하지 않고, 미리 만들어둔 스타일을 가져다 씀
+        val stylesNormal = cachedNormalStyles ?: return
+        val stylesRed = cachedRedStyles ?: return
 
         for (bin in bins) {
             val position = LatLng.from(bin.geometry.latitude, bin.geometry.longitude)
+            Log.d("PIN_CHECK", "핀 생성 시도 - ID: ${bin.id}, 위도: ${bin.geometry.latitude}, 경도: ${bin.geometry.longitude}")
             val options = LabelOptions.from(position).apply {
                 this.styles = if (bin.isCongested) stylesRed else stylesNormal
                 this.rank = if (bin.isCongested) 1 else 0
@@ -541,14 +636,43 @@ class MainActivity : AppCompatActivity() {
 
     // 내 위치 핀 등록 함수
     private fun addMyPositionPin(kakaoMap: KakaoMap, position: LatLng) {
-        val labelManager = kakaoMap.labelManager ?: return
-        val layer = labelManager.layer ?: return
+        val layer = userLayer ?: return
+        layer.removeAll()
         val myPositionStyle = LabelStyle.from(R.drawable.ic_my_position_green)
         val myPositionStyles = LabelStyles.from(myPositionStyle)
-        labelManager.addLabelStyles(myPositionStyles)
+        kakaoMap.labelManager?.addLabelStyles(myPositionStyles)
 
         val options = LabelOptions.from(position).apply { styles = myPositionStyles }
         myPositionPin = layer.addLabel(options)
+    }
+
+    private fun refreshMapPins(kakaoMap: KakaoMap) {
+        // 1. 현재 내가 선택한 필터 확인
+        Log.d("FilterDebug", "========================================")
+        Log.d("FilterDebug", "현재 켜진 필터(ID): $selectedCategoryIds")
+
+        // 2. 필터링 로직 실행
+        val filteredList = if (selectedCategoryIds.isEmpty()) {
+            Log.d("FilterDebug", "필터 없음 -> 전체 보기 모드")
+            allDownloadedBins
+        } else {
+            allDownloadedBins.filter { bin ->
+                // 3. 각 쓰레기통이 어떤 카테고리를 가지고 있는지 검사
+                val isMatch = bin.categoryIds.any { it in selectedCategoryIds }
+
+                // (로그가 너무 많을 수 있으니 첫 3개만 찍어보기)
+                if (bin.id < 5) {
+                    Log.d("FilterDebug", "쓰레기통(${bin.id}) 카테고리: ${bin.categoryIds} / 통과여부: $isMatch")
+                }
+                isMatch
+            }
+        }
+
+        Log.d("FilterDebug", "결과: 전체 ${allDownloadedBins.size}개 중 -> ${filteredList.size}개 남음")
+        Log.d("FilterDebug", "========================================")
+
+        currentBinList = filteredList
+        addBinPinsToMap(kakaoMap, currentBinList)
     }
 
     // 지도 영역 좌표(SW, NE) 계산 함수
@@ -613,6 +737,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun convertCategoryNamesToIds(names: List<String>?): List<Int> {
+        if (names == null) return listOf(1)
+
+        val map = mapOf(
+            "일반" to 1,
+            "재활용" to 2,
+            "음료" to 3,
+        )
+
+        return names.mapNotNull { map[it] }.ifEmpty { listOf(1) }
+    }
 
     override fun onResume() {
         super.onResume()
