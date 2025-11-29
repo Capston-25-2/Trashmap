@@ -61,3 +61,40 @@ async def get_issue(
         total_count=total_count,
         data=issues
     )
+
+# PATCH /issue/{issueId} API
+@router.patch("/{issueId}", response_model=schemas.IssueItem)
+async def update_issue_status(
+    issueId: int,
+    update_data: schemas.IssueStatusUpdate,
+    current_user: models.User = Depends(check_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    query = (
+        select(models.Issue)
+        .options(
+            selectinload(models.Issue.trashcan),
+            selectinload(models.Issue.reports)
+        )
+        .where(models.Issue.issue_id == issueId)
+    )
+
+    result = await db.execute(query)
+    issue = result.scalar()
+
+    if not issue:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="해당 이슈를 찾을 수 없습니다."
+        )
+    
+    issue.status = update_data.status
+
+    if update_data.status == "resolved":
+        issue.resolved_at = func.now()
+    else:
+        issue.resolved_at = None
+    await db.commit()
+    await db.refresh(issue)
+
+    return issue

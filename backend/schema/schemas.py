@@ -182,3 +182,6 @@ class IssueItem(CustomBaseModel):
 class IssueListResponse(BaseModel):
     total_count: int
     data: List[IssueItem]
+
+class IssueStatusUpdate(BaseModel):
+    status: str
