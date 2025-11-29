@@ -427,3 +427,52 @@ async def create_report(
         report_id = new_report.report_id,
         message = "제보가 성공적으로 등록되었습니다."
     )
+
+# DELETE /bins/{binId} API
+@router.delete("/{binId}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_trashcan(
+    binId: int,
+    current_user: models.User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    특정 쓰레기통을 삭제합니다.
+    관리자만 이 기능을 사용할 수 있습니다.
+    """
+
+    # 삭제하려는 쓰레기통 조회
+    query = (
+        select(models.Trashcan)
+        .where(models.Trashcan.trashcan_id == binId)
+    )
+    result = await db.execute(query)
+    trashcan = result.scalar()
+
+    if not trashcan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="해당 쓰레기통을 찾을 수 없습니다."
+        )
+
+    # 삭제하는 유저가 관리자인지 확인
+    if current_user.role != models.UserRole.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="삭제 권한이 없습니다."
+        )
+    
+    # S3 이미지 삭제
+    if trashcan.img_url:
+        try:
+            # URL에서 파일 키만 추출 (images/파일명.jpg)
+            file_key = trashcan.img_url.split("amazonaws.com/")[-1]
+            s3_client.delete_object(Bucket=S3_BUCKET_NAME, Key=file_key)
+            print(f"S3 이미지 삭제 완료: {file_key}")
+        except Exception as e:
+            print(f"S3 이미지 삭제 실패(DB는 삭제 진행): {e}")
+
+    # DB 삭제
+    await db.delete(trashcan)
+    await db.commit()
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
