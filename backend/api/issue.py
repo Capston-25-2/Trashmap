@@ -39,10 +39,10 @@ async def get_issue(
     )
 
     if issue_type:
-        query = query.where(models.Issue.issue_type == issue_type)
+        query = query.where(models.Issue.issue_type.in_(issue_type))
 
     if status:
-        query = query.where(models.Issue.status == status)
+        query = query.where(models.Issue.status.in_(status))
     
     count_query = (
         select(func.count())
@@ -54,8 +54,8 @@ async def get_issue(
     result = await db.execute(query)
     issues = result.scalars().all()
 
-    count_query = await db.execute(query)
-    total_count = count_query.scalar()
+    count_result = await db.execute(count_query)
+    total_count = count_result.scalar()
 
     return schemas.IssueListResponse(
         total_count=total_count,
