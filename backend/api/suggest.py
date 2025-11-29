@@ -10,7 +10,7 @@ from typing import List, Optional
 from db.database import get_db
 from model import models
 from schema import schemas
-from api.auth import get_current_user
+from api.auth import get_current_user, check_admin
 
 router = APIRouter(
     prefix="/suggest",
@@ -58,7 +58,7 @@ async def get_suggest(
     status: Optional[List[str]] = Query(["pending"], description="상태 필터(pending, approved)"),
     offset: int = 0,
     limit: int = 20,
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(check_admin),
     db: AsyncSession = Depends(get_db)
 ):
     query = (

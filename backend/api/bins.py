@@ -17,7 +17,7 @@ from db.database import get_db
 from model import models
 from model.models import UserRole
 from schema import schemas
-from api.auth import get_current_user
+from api.auth import get_current_user, check_admin
 from tasks.bin_processor import process_bin_image_task
 
 
@@ -433,7 +433,7 @@ async def create_report(
 @router.delete("/{binId}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_trashcan(
     binId: int,
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(check_admin),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -453,13 +453,6 @@ async def delete_trashcan(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="해당 쓰레기통을 찾을 수 없습니다."
-        )
-
-    # 삭제하는 유저가 관리자인지 확인
-    if current_user.role != models.UserRole.admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="삭제 권한이 없습니다."
         )
     
     # S3 이미지 삭제
