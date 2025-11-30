@@ -14,12 +14,14 @@ val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
     properties.load(localPropertiesFile.inputStream())
 } else {
-    // 2. 🌟 'logger.warn' 대신 'println'을 사용해 경고를 출력합니다.
     println("WARN: local.properties file not found. Using default values.")
 }
 
 val kakaoAppKey = properties.getProperty("KAKAO_NATIVE_APP_KEY", "DEFAULT_KEY_IF_NOT_FOUND")
 val serverUrl = properties.getProperty("SERVER_BASE_URL", "\"http://127.0.0.1:8000\"")
+
+val kakaoRestApiKey = properties.getProperty("KAKAO_REST_API_KEY", "12")
+
 android {
     namespace = "com.example.trashmapv2"
     compileSdk = 36
@@ -41,6 +43,12 @@ android {
             "String",
             "SERVER_BASE_URL",
             "\"$serverUrl\""
+        )
+
+        buildConfigField(
+            "String",
+            "KAKAO_REST_API_KEY",
+            "\"$kakaoRestApiKey\""
         )
 
         manifestPlaceholders["KAKAO_NATIVE_APP_KEY"] = kakaoAppKey
