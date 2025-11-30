@@ -212,3 +212,43 @@ async def get_user_user_id(
         )
 
     return user
+
+# GET /leaderboard API
+@router.get("/", response_model=schemas.LeaderboardResponse)
+async def get_leaderboard(
+    offset: int = 0,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db)
+):
+    query = (
+        select(models.User)
+        .order_by(desc(models.User.level), desc(models.User.exp))
+        .offset(offset)
+        .limit(limit)
+    )
+    
+    count_query = (
+        select(func.count())
+        .select_from(models.User)
+    )
+
+    result = await db.execute(query)
+    leaderboard_list = result.scalars().all()
+
+    count_result = await db.execute(count_query)
+    total_users = count_result.scalar()
+
+    ranking_data = []
+    for index, user in enumerate(leaderboard_list):
+        ranking_data.append(schemas.UserRanking(
+            rank = offset + index + 1,
+            username = user.username,
+            level = user.level,
+            exp = user.exp
+            )
+        )
+        
+    return schemas.LeaderboardResponse(
+        total_users = total_users,
+        rankings = ranking_data
+    )

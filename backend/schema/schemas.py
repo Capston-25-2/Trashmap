@@ -130,6 +130,7 @@ class UserRanking(BaseModel):
     rank: int
     username: str
     level: int
+    exp: int
 
 class LeaderboardResponse(BaseModel):
     total_users: int
