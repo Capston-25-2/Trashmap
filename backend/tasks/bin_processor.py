@@ -28,19 +28,30 @@ S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME")
 S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
 S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
 
-s3_client = boto3.client(
-    's3',
-    aws_access_key_id=S3_ACCESS_KEY,
-    aws_secret_access_key=S3_SECRET_KEY,
-    region_name='ap-northeast-2' 
-)
-
-rekognition_client = boto3.client(
-    'rekognition',
-    aws_access_key_id=S3_ACCESS_KEY,
-    aws_secret_access_key=S3_SECRET_KEY,
-    region_name='ap-northeast-2'
-)
+if S3_ACCESS_KEY and S3_SECRET_KEY:
+    # 1. 로컬 개발용 (.env에 키가 있을 때)
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=S3_ACCESS_KEY,
+        aws_secret_access_key=S3_SECRET_KEY,
+        region_name='ap-northeast-2'
+    )
+    rekognition_client = boto3.client(
+        'rekognition',
+        aws_access_key_id=S3_ACCESS_KEY,
+        aws_secret_access_key=S3_SECRET_KEY,
+        region_name='ap-northeast-2'
+    )
+else:
+    # 2. EC2 서버용 (키가 없을 때 -> IAM 역할 자동 사용)
+    s3_client = boto3.client(
+        's3',
+        region_name='ap-northeast-2'
+    )
+    rekognition_client = boto3.client(
+        'rekognition',
+        region_name='ap-northeast-2'
+    )
 
 # AWS에 사진 분석 요청
 def detect_trashcan(bucket, key):
