@@ -129,6 +129,10 @@ class Issue(Base):
     
     trashcan = relationship("Trashcan", back_populates="issues")
     reports = relationship("Report", back_populates="issue")
+
+    @hybrid_property
+    def report_count(self):
+        return len(self.reports) if self.reports else 0
     
     def __repr__(self):
         return f"<Issue(issue_id={self.issue_id}, status='{self.status}')>"
