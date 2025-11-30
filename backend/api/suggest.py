@@ -2,21 +2,22 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload # N + 1 문제 방지
-from sqlalchemy import func
+from sqlalchemy import func, desc
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
+from typing import List, Optional
 
 from db.database import get_db
 from model import models
 from schema import schemas
-from api.auth import get_current_user
+from api.auth import get_current_user, check_admin
 
 router = APIRouter(
     prefix="/suggest",
     tags=["Suggest"]
 )
 
-# POST /suggest API 구현
+# POST /suggest API
 @router.post("/", response_model=schemas.SuggestCreationResponse, status_code=status.HTTP_201_CREATED)
 async def create_suggest(
     suggest_data: schemas.SuggestCreate,
@@ -49,3 +50,76 @@ async def create_suggest(
         suggest_id = db_suggest.suggest_id,
         message="건의가 성공적으로 접수되었습니다."
     )
+
+# GET /suggest API
+@router.get("/", response_model=schemas.SuggestListResponse)
+async def get_suggest(
+    dong: Optional[List[str]] = Query(None, description="동 이름 필터(여러 개 가능)"),
+    status: Optional[List[str]] = Query(["pending"], description="상태 필터(pending, approved)"),
+    offset: int = 0,
+    limit: int = 20,
+    current_user: models.User = Depends(check_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    query = (
+        select(models.Suggest)
+        .order_by(desc(models.Suggest.created_at))
+    )
+
+    # 동 필터링이 존재하면
+    if dong:
+        query = query.where(models.Suggest.dong.in_(dong))
+
+    # status 기본값('pending')
+    query = query.where(models.Suggest.status.in_(status))
+
+    count_query = (
+        select(func.count())
+        .select_from(query.subquery())
+    )
+
+    query = query.offset(offset).limit(limit)
+    
+    result = await db.execute(query)
+    suggestions = result.scalars().all()
+
+    count_result = await db.execute(count_query)
+    total_count = count_result.scalar()
+
+    return schemas.SuggestListResponse(
+        total_count = total_count,
+        data = suggestions
+    )
+
+# PATCH /suggest/{suggestId} API
+@router.patch("/{suggestId}", response_model=schemas.SuggestItem)
+async def update_suggest_status(
+    suggestId: int,
+    update_data: schemas.SuggestStatusUpdate,
+    current_user: models.User = Depends(check_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    # 건의사항 조회
+    suggest = await db.get(models.Suggest, suggestId)
+
+    if not suggest:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="해당 건의사항을 찾을 수 없습니다."
+        )
+    
+    # 상태 업데이트
+    suggest.status = update_data.status
+
+    # DB 업데이트
+    try:
+        await db.commit()
+        await db.refresh(suggest)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="상태 업데이트 실패: {e}"
+        )
+    
+    return suggest

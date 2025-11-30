@@ -57,6 +57,23 @@ async def get_current_user(
         raise credentials_exception
     return user
 
+# 관리자 권환 확인 의존성
+async def check_admin(
+    current_user: models.User = Depends(get_current_user)
+) -> models.User:
+    """
+    현재 로그인한 유저가 관리자인지 확인합니다.
+    아니면 403 Forbidden 에러
+    """
+    
+    if current_user.role != models.UserRole.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="관리자 권한이 필요합니다."
+        )
+    
+    return current_user
+
 # --- API 엔드포인트 ---
 
 @router.post("/login", response_model=schemas.Token)
