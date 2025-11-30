@@ -19,6 +19,7 @@ from model.models import UserRole
 from schema import schemas
 from api.auth import get_current_user, check_admin
 from tasks.bin_processor import process_bin_image_task
+from utils import give_exp_async
 
 
 # 이 파일의 API들은 모두 /bins 로 시작한다는 '라우터' 정의
@@ -276,7 +277,7 @@ async def update_trashcan_details(
         .where(models.Trashcan.trashcan_id == binId)
     )
     result = await db.execute(query)
-    trashcan = result.scalars().first()
+    trashcan = result.scalar()
 
     if not trashcan:
         raise HTTPException(
@@ -313,8 +314,9 @@ async def update_trashcan_details(
         
     elif current_user.role == UserRole.admin:
         # 관리자
-        pass
-
+        if trashcan.status != 'approved' and update_dict.get('status') == 'approved':
+            await give_exp_async(trashcan.user_id, 100, "쓰레기통 등록 승인", db)
+            
     # 3. DB 업데이트
     for key, value in update_dict.items():
         setattr(trashcan, key, value)
