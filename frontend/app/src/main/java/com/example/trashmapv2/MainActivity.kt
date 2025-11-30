@@ -247,15 +247,31 @@ class MainActivity : AppCompatActivity() {
                             },
                             onAddBinClick = {
                                 if (isUserLoggedIn()) {
-                                    val currentMapCenter = kakaoMap?.cameraPosition?.position
-                                    if (currentMapCenter != null) {
-                                        val intent = Intent(this@MainActivity, RegisterActivity::class.java).apply {
-                                            putExtra("latitude", currentMapCenter.latitude)
-                                            putExtra("longitude", currentMapCenter.longitude)
-                                        }
-                                        startActivity(intent)
+                                    // 1. 위치 권한 확인
+                                    if (ActivityCompat.checkSelfPermission(
+                                            this@MainActivity,
+                                            Manifest.permission.ACCESS_FINE_LOCATION
+                                        ) != PackageManager.PERMISSION_GRANTED
+                                    ) {
+                                        Toast.makeText(this@MainActivity, "위치 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
                                     } else {
-                                        Toast.makeText(this@MainActivity, "지도가 준비되지 않았습니다.", Toast.LENGTH_SHORT).show()
+                                        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                                            .addOnSuccessListener { location ->
+                                                if (location != null) {
+                                                    // 3. 내 위치 좌표를 담아서 이동
+                                                    val intent = Intent(this@MainActivity, RegisterActivity::class.java).apply {
+                                                        putExtra("latitude", location.latitude)
+                                                        putExtra("longitude", location.longitude)
+                                                    }
+                                                    startActivity(intent)
+                                                } else {
+                                                    Toast.makeText(this@MainActivity, "현재 위치를 찾을 수 없습니다 (GPS 확인 필요)", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                            .addOnFailureListener { e ->
+                                                Log.e("Location", "위치 불러오기 실패", e)
+                                                Toast.makeText(this@MainActivity, "위치 오류가 발생했습니다.", Toast.LENGTH_SHORT).show()
+                                            }
                                     }
                                 } else {
                                     Toast.makeText(this@MainActivity, "등록하기는 로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
@@ -263,14 +279,26 @@ class MainActivity : AppCompatActivity() {
                                 }
                             },
                             onSuggestionClick = {
-                                moveToMyLocation()
-                                lifecycleScope.launch {
-                                    delay(600L)
-                                    val mapCenter = kakaoMap?.cameraPosition?.position
-                                    if (mapCenter != null) {
-                                        currentAddress = getAddressFromCoordinates(mapCenter)
+                                // 1. 로그인 여부 먼저 확인
+                                if (isUserLoggedIn()) {
+                                    // [로그인 O] -> 건의 모드 시작
+                                    moveToMyLocation() // 내 위치로 이동
+
+                                    lifecycleScope.launch {
+                                        delay(600L) // 이동 애니메이션 대기
+                                        val mapCenter = kakaoMap?.cameraPosition?.position
+
+                                        if (mapCenter != null) {
+                                            // 카카오 API로 주소(동) 가져오기
+                                            fetchDongFromKakao(mapCenter.latitude, mapCenter.longitude)
+                                        }
+                                        // 건의 모드 UI 켜기
+                                        isSuggestionModeActive = true
                                     }
-                                    isSuggestionModeActive = true
+                                } else {
+                                    // [로그인 X] -> 로그인 화면으로 이동
+                                    Toast.makeText(this@MainActivity, "건의하기는 로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
+                                    startActivity(Intent(this@MainActivity, LoginActivity::class.java))
                                 }
                             }
                         )

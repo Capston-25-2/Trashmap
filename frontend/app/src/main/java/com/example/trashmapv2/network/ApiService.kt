@@ -1,7 +1,11 @@
 package com.example.trashmapv2.network
 
+import com.example.trashmapv2.data.BinCreateRequest
+import com.example.trashmapv2.data.BinCreateResponse
 import com.example.trashmapv2.data.ExpHistoryResponse
 import com.example.trashmapv2.data.MyBinsResponse
+import com.example.trashmapv2.data.PresignedUrlRequest
+import com.example.trashmapv2.data.PresignedUrlResponse
 import com.example.trashmapv2.data.SuggestCreateRequest
 import com.example.trashmapv2.data.SuggestCreationResponse
 import com.example.trashmapv2.data.User
@@ -14,6 +18,9 @@ import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import okhttp3.RequestBody
+import retrofit2.http.PUT
+import retrofit2.http.Url
 
 //import retrofit2.http.Query
 
@@ -170,4 +177,25 @@ interface ApiService {
         @Header("Authorization") token: String,
         @Body request: SuggestCreateRequest
     ): Response<SuggestCreationResponse>
+
+    // Presigned URL 발급 요청
+    @POST("/bins/presigned-url")
+    suspend fun getPresignedUrl(
+        @Header("Authorization") token: String,
+        @Body request: PresignedUrlRequest
+    ): Response<PresignedUrlResponse>
+
+    //  S3에 진짜 파일 업로드
+    @PUT
+    suspend fun uploadImageToS3(
+        @Url url: String,
+        @Body image: RequestBody,
+        @Header("Content-Type") contentType: String // "image/jpeg" 등
+    ): Response<Unit>
+
+    @POST("/bins/")
+    suspend fun createBin(
+        @Header("Authorization") token: String,
+        @Body request: BinCreateRequest
+    ): Response<BinCreateResponse>
 }

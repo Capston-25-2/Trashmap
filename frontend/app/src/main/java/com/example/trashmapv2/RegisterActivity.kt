@@ -1,12 +1,15 @@
 package com.example.trashmapv2
 
+import android.content.Context
+import android.location.Geocoder
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,39 +22,32 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
+import coil.compose.AsyncImage
 import com.example.trashmapv2.auth.TokenManager
+import com.example.trashmapv2.data.PresignedUrlRequest
+import com.example.trashmapv2.data.BinCreateRequest // 아까 만든 데이터 클래스
 import com.example.trashmapv2.network.RetrofitClient
-import com.example.trashmapv2.network.TrashcanCreateRequest
 import com.example.trashmapv2.ui.theme.TrashMapAppV2Theme
-import kotlinx.coroutines.launch
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.ui.platform.LocalContext
-import com.example.trashmapv2.ui.CameraCaptureScreen
-import android.location.Geocoder
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.InputStream
 import java.util.Locale
-class RegisterActivity : ComponentActivity() {
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted: Boolean ->
-        if (isGranted) {
-            Toast.makeText(this, "카메라 권한이 허용되었습니다.", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(this, "카메라 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
-            finish()
-        }
-    }
 
+class RegisterActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 1. MainActivity에서 넘겨준 좌표 받기
+        // 1. 지도에서 넘겨준 좌표 받기
         val lat = intent.getDoubleExtra("latitude", 0.0)
         val lon = intent.getDoubleExtra("longitude", 0.0)
 
@@ -60,52 +56,114 @@ class RegisterActivity : ComponentActivity() {
                 RegisterScreen(
                     lat = lat,
                     lon = lon,
-                    onBackClick = { finish() }, // 뒤로가기
-                    onRegisterClick = { categories ->
-                        // 등록 버튼 누르면 서버 전송
-                        registerTrashcan(lat, lon, categories)
+                    onBackClick = { finish() },
+                    onRegisterClick = { categories, photoUri, description ->
+                        // 등록 버튼 누르면 3단계 업로드 시작
+                        if (photoUri != null) {
+                            uploadAndRegisterBin(lat, lon, categories, photoUri, description)
+                        } else {
+                            Toast.makeText(this, "사진을 촬영해주세요.", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 )
             }
         }
     }
 
-    // 서버 전송 함수
-    private fun registerTrashcan(lat: Double, lon: Double, categories: List<Int>) {
+    // [핵심] 3단계 업로드 로직 (URL발급 -> S3업로드 -> DB등록)
+    private fun uploadAndRegisterBin(
+        lat: Double,
+        lon: Double,
+        categories: List<Int>,
+        imageUri: Uri,
+        description: String
+    ) {
         lifecycleScope.launch {
             val token = TokenManager.getAuthToken(this@RegisterActivity)
             if (token == null) {
                 Toast.makeText(this@RegisterActivity, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
                 return@launch
             }
+            val authHeader = "Bearer $token"
 
             try {
-                // Mock용 더미 데이터 생성
-                val request = TrashcanCreateRequest(
+                Toast.makeText(this@RegisterActivity, "등록을 시작합니다...", Toast.LENGTH_SHORT).show()
+
+                // -------------------------------------------------
+                // 1단계: 서버에 Presigned URL 요청
+                // -------------------------------------------------
+                val fileName = "bin_${System.currentTimeMillis()}.jpg"
+                val presignedReq = PresignedUrlRequest(fileName, "image/jpeg")
+
+                val urlResponse = RetrofitClient.apiInstance.getPresignedUrl(authHeader, presignedReq)
+
+                if (!urlResponse.isSuccessful || urlResponse.body() == null) {
+                    Log.e("Upload", "1단계 실패: ${urlResponse.code()} - ${urlResponse.errorBody()?.string()}")
+                    Toast.makeText(this@RegisterActivity, "서버 연결 실패", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                val presignedData = urlResponse.body()!!
+                val uploadUrl = presignedData.url
+                val s3FileKey = presignedData.fileKey // 나중에 DB에 넣을 키
+
+                Log.d("Upload", "1단계 성공: Key 발급 완료")
+
+                // -------------------------------------------------
+                // 2단계: S3에 이미지 업로드 (PUT)
+                // -------------------------------------------------
+                val inputStream: InputStream? = contentResolver.openInputStream(imageUri)
+                val imageBytes = inputStream?.readBytes()
+                inputStream?.close()
+
+                if (imageBytes == null) {
+                    Toast.makeText(this@RegisterActivity, "이미지 처리 실패", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                val requestBody = imageBytes.toRequestBody("image/jpeg".toMediaTypeOrNull())
+
+                val s3Response = RetrofitClient.apiInstance.uploadImageToS3(
+                    url = uploadUrl,
+                    image = requestBody,
+                    contentType = "image/jpeg"
+                )
+
+                if (!s3Response.isSuccessful) {
+                    Log.e("Upload", "2단계 실패(S3): ${s3Response.code()}")
+                    Toast.makeText(this@RegisterActivity, "사진 업로드 실패", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                Log.d("Upload", "2단계 성공: S3 업로드 완료")
+
+                // -------------------------------------------------
+                // 3단계: 서버에 최종 등록 요청 (POST /bins)
+                // -------------------------------------------------
+                val binRequest = BinCreateRequest(
                     lat = lat,
                     lon = lon,
                     categories = categories,
-                    s3FileKey = "mock_image_file.jpg",
+                    description = description,
                     isCongested = false,
-                    isVerified = false
+                    isVerified = false,
+                    s3FileKey = s3FileKey // [중요] S3 키를 여기에 넣어서 보냄
                 )
 
-                // API 호출
-                val response = RetrofitClient.apiInstance.registerBin(
-                    token = "Bearer $token",
-                    request = request
-                )
+                val finalResponse = RetrofitClient.apiInstance.createBin(authHeader, binRequest)
 
-                if (response.isSuccessful) {
-                    Toast.makeText(this@RegisterActivity, "등록 성공", Toast.LENGTH_LONG).show()
-                    Log.d("Register", "성공 ID: ${response.body()?.trashcanId}")
-                    finish() // 성공하면 화면 닫기
+                if (finalResponse.isSuccessful) {
+                    Toast.makeText(this@RegisterActivity, "쓰레기통 등록 완료!", Toast.LENGTH_LONG).show()
+                    Log.d("Register", "등록 성공")
+                    finish() // 화면 닫기
                 } else {
-                    Toast.makeText(this@RegisterActivity, "등록 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
+                    Log.e("Upload", "3단계 실패: ${finalResponse.code()} - ${finalResponse.errorBody()?.string()}")
+                    Toast.makeText(this@RegisterActivity, "등록 실패: 서버 오류", Toast.LENGTH_SHORT).show()
                 }
+
             } catch (e: Exception) {
-                Log.e("Register", "에러", e)
-                Toast.makeText(this@RegisterActivity, "오류 발생", Toast.LENGTH_SHORT).show()
+                Log.e("Upload", "에러 발생", e)
+                Toast.makeText(this@RegisterActivity, "네트워크 오류 발생", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -117,39 +175,30 @@ fun RegisterScreen(
     lat: Double,
     lon: Double,
     onBackClick: () -> Unit,
-    onRegisterClick: (List<Int>) -> Unit
+    onRegisterClick: (List<Int>, Uri?, String) -> Unit // 파라미터 추가 (URI, 설명)
 ) {
-    // 1. 화면 상태 관리 (폼 화면 vs 카메라 화면)
     var isCameraOpen by remember { mutableStateOf(false) }
-
-    // 2. 찍은 사진 저장할 변수
-    var photoUri by remember { mutableStateOf<android.net.Uri?>(null) }
-
-    // 3. 카테고리 선택 관리
+    var photoUri by remember { mutableStateOf<Uri?>(null) }
     val selectedCategories = remember { mutableStateListOf<Int>() }
-    val categoryMap = mapOf(1 to "일반 쓰레기", 2 to "재활용", 3 to "음료/컵")
+    var descriptionText by remember { mutableStateOf("") } // 설명 입력용
 
+    val categoryMap = mapOf(1 to "일반", 2 to "재활용", 3 to "음료/컵")
     val context = LocalContext.current
     var addressText by remember { mutableStateOf("위치 확인 중...") }
 
+    // 주소 변환 (Geocoder)
     LaunchedEffect(lat, lon) {
-        // IO 스레드(백그라운드)에서 주소 변환 수행
         withContext(Dispatchers.IO) {
             try {
                 val geocoder = Geocoder(context, Locale.KOREA)
-                // 좌표로 주소 가져오기 (최대 1개)
                 val addresses = geocoder.getFromLocation(lat, lon, 1)
-
                 if (!addresses.isNullOrEmpty()) {
-                    // 도로명 주소 가져오기
                     val address = addresses[0].getAddressLine(0)
-                    // "대한민국" 이라는 글자가 있으면 떼버리기 (깔끔하게)
                     addressText = address.replace("대한민국 ", "")
                 } else {
                     addressText = "주소를 찾을 수 없습니다."
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
                 addressText = "주소 변환 오류"
             }
         }
@@ -157,26 +206,26 @@ fun RegisterScreen(
 
     if (isCameraOpen) {
         // (A) 카메라 화면 보여주기
-        // 파일 상단에 import com.example.trashmapv2.ui.camera.CameraCaptureScreen 추가 필요!
         com.example.trashmapv2.ui.CameraCaptureScreen(
+
+            // [수정] 현재 위치 정보를 카메라 화면으로 넘겨줍니다!
+            userLat = lat,
+            userLon = lon,
+
             onImageCaptured = { uri ->
-                photoUri = uri // 찍은 사진 저장
-                isCameraOpen = false // 다시 폼 화면으로 돌아가기
+                photoUri = uri
+                isCameraOpen = false
             },
             onCaptureFailed = {
                 Toast.makeText(context, "촬영 실패", Toast.LENGTH_SHORT).show()
                 isCameraOpen = false
             },
             onRequestPermission = {
-                // 여기서 권한 요청! (Activity가 아닌 곳에서 부르려면 Context 활용 필요하지만,
-                // 일단 RegisterActivity의 Launcher를 직접 연결하기 어려우므로
-                // 간단히 Toast 띄우거나, Activity 쪽에서 콜백을 받아야 함.
-                // *여기서는 간단히 Toast만 띄우고, 실제 권한은 Activity 진입 시 체크하는 게 좋음*
-                Toast.makeText(context, "권한이 필요합니다.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "카메라 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
             }
         )
     } else {
-        // (B) 등록 폼 화면 보여주기
+        // 등록 폼 화면
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -196,31 +245,26 @@ fun RegisterScreen(
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 1. 사진 첨부 영역 (여기를 수정!)
+                // 1. 사진 영역
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(200.dp)
                         .background(Color.LightGray, RoundedCornerShape(12.dp))
-                        // 🌟 [수정] 클릭하면 카메라 상태(isCameraOpen)를 true로 변경!
                         .clickable { isCameraOpen = true },
                     contentAlignment = Alignment.Center
                 ) {
                     if (photoUri != null) {
-                        // (1) 사진이 있으면 사진 보여주기
-                        // coil 라이브러리 사용 (AsyncImage)
-                        coil.compose.AsyncImage(
+                        AsyncImage(
                             model = photoUri,
                             contentDescription = "찍은 사진",
                             modifier = Modifier.fillMaxSize(),
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                            contentScale = ContentScale.Crop
                         )
                     } else {
-                        // (2) 사진 없으면 카메라 아이콘 보여주기
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color.Gray)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("사진을 찍어주세요 (터치)", color = Color.Gray)
+                            Text("사진을 찍어주세요 (필수)", color = Color.Gray)
                         }
                     }
                 }
@@ -228,19 +272,25 @@ fun RegisterScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // 2. 위치 정보
-                Text("등록 위치", fontWeight = FontWeight.Bold)
-                Text(
-                    text = addressText, // "서울시 중구 세종대로..."
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
+                Text("위치", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+                Text(text = addressText, fontSize = 16.sp)
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 3. 설명 입력 (추가됨)
+                OutlinedTextField(
+                    value = descriptionText,
+                    onValueChange = { descriptionText = it },
+                    label = { Text("설명 (선택)") },
+                    placeholder = { Text("예: 강남역 1번출구 앞") },
+                    modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                // 3. 카테고리 선택
-                Text("어떤 쓰레기통인가요?", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Spacer(modifier = Modifier.height(12.dp))
-
+                // 4. 카테고리 선택
+                Text("종류 선택", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     categoryMap.forEach { (id, name) ->
                         val isSelected = selectedCategories.contains(id)
@@ -260,13 +310,12 @@ fun RegisterScreen(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // 4. 등록 버튼
+                // 5. 등록 버튼
                 Button(
-                    onClick = { onRegisterClick(selectedCategories) },
-                    enabled = selectedCategories.isNotEmpty(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
+                    // 클릭 시 사진과 설명을 함께 전달
+                    onClick = { onRegisterClick(selectedCategories, photoUri, descriptionText) },
+                    enabled = selectedCategories.isNotEmpty() && photoUri != null,
+                    modifier = Modifier.fillMaxWidth().height(56.dp)
                 ) {
                     Text("등록하기", fontSize = 18.sp)
                 }
