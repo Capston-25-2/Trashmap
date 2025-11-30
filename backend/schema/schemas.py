@@ -52,6 +52,7 @@ class TrashcanUpdate(BaseModel):
     img_url: Optional[str] = Field(None, description="업데이트할 이미지 경로")
     is_congested: Optional[bool] = Field(None, description="업데이트할 혼잡도 여부")
     is_verified: Optional[bool] = Field(None, description="업데이트할 정부인증 여부")
+    status: Optional[str] = Field(None, description="업데이트할 검증상태 여부")
 
 class PresignedUrlRequest(BaseModel):
     filename: str = Field(..., description="원본 파일명 (예: image.jpg)")

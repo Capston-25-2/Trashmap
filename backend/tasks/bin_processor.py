@@ -35,6 +35,31 @@ s3_client = boto3.client(
     region_name='ap-northeast-2' 
 )
 
+rekognition_client = boto3.client(
+    'rekognition',
+    aws_access_key_id=S3_ACCESS_KEY,
+    aws_secret_access_key=S3_SECRET_KEY,
+    region_name='ap-northeast-2'
+)
+
+# AWS에 사진 분석 요청
+def detect_trashcan(bucket, key):
+    response = rekognition_client.detect_labels(
+        Image={'S3Object': {'Bucket': bucket, 'Name': key}},
+        MaxLabels=10,
+        MinConfidence=30 # 확률이 30% 미만이면 자동 반려
+    )
+
+    # 감지된 라벨들 중에 'Trash Can' 관련 키워드가 있는지 확인
+    # (Trash Can, Waste Container, Bin, Garbage, Rubbish 등)
+    target_labels = ['Trash Can', 'Waste Container', 'Bin', 'Garbage', 'Rubbish']
+
+    for label in response['Labels']:
+        if label['Name'] in target_labels and label['Confidence'] > 95: # 확률이 95% 이상이면 자동 승인
+            return True, label['Confidence']
+    
+    return False, 0
+
 # EXIF GPS 변환 헬퍼 함수
 # GPS (도, 분, 초) 형식을 10진수로 변환
 # EXIF는 GPS 좌표를 분수(분자, 분모) 형태로 저장
@@ -131,14 +156,17 @@ def process_bin_image_task(trashcan_id: int, s3_file_key: str, user_lat: float, 
             raise ValueError("촬영 GPS가 등록 위치와 다릅니다.")
         
         print(f"[{trashcan_id}] EXIF 검증 통과 (거리: {distance:.2f}m)")
+
+        # 3. AI 이미지 분석
+        is_trashcan, confidence = detect_trashcan(S3_BUCKET_NAME, s3_file_key)
         
-        # 3. 이미지 압축
+        # 4. 이미지 압축
         image.thumbnail((1080,1080)) # 1080px로 리사이징
         compressed_buffer = io.BytesIO()
         image.save(compressed_buffer, "JPEG", quality = 85, optimize = True)
         compressed_buffer.seek(0)
 
-        # 4. S3로 재업로드
+        # 5. S3로 재업로드
         new_file_key = f"images/{trashcan_id}_{uuid.uuid4()}.jpg"
 
         s3_client.put_object(
@@ -150,23 +178,27 @@ def process_bin_image_task(trashcan_id: int, s3_file_key: str, user_lat: float, 
 
         print(f"[{trashcan_id}] 이미지 압축 및 재업로드 완료: {new_file_key}")
 
-        # 5. 임시 원본 파일 삭제
+        # 6. 임시 원본 파일 삭제
         s3_client.delete_object(Bucket = S3_BUCKET_NAME, Key = s3_file_key)
 
         print(f"[{trashcan_id}] 임시 원본 파일 삭제 완료: {s3_file_key}")
         
-        # 6. DB 업데이트
+        # 7. DB 업데이트
         trashcan = db.get(models.Trashcan, trashcan_id)
 
         if trashcan:
-            trashcan.status = 'approved'
+            if is_trashcan:
+                # AI가 쓰레기통이라 판단하면(확률>30%)
+                trashcan.status = 'pending_validation'
+            else:
+                # AI가 쓰레기통이 아니라 판단하면
+                trashcan.status = 'rejected'
+                print(f"[{trashcan_id}] AI 분석 결과 쓰레기통 아님")
+
             trashcan.img_url = f"https://{S3_BUCKET_NAME}.s3.amazonaws.com/{new_file_key}"
             db.commit()
-        
-        # exp 100 지급
-        give_exp_sync(trashcan.user_id, 100, "쓰레기통 등록", db)
 
-        return f"Task {trashcan_id} processed successfully."
+        return f"{trashcan_id} 내부 검증 로직 완료."
 
     except Exception as e:
         db.rollback()
