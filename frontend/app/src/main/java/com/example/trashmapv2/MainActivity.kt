@@ -60,6 +60,7 @@ import com.example.trashmapv2.data.BinGeometry
 import com.example.trashmapv2.ui.main.*
 import com.example.trashmapv2.ui.theme.TrashMapAppV2Theme
 import com.example.trashmapv2.data.MissionInfo
+import com.example.trashmapv2.network.KakaoRetrofitClient
 import com.example.trashmapv2.network.ReportRequest
 import com.example.trashmapv2.network.RetrofitClient
 import com.kakao.vectormap.label.CompetitionType
@@ -88,6 +89,9 @@ class MainActivity : AppCompatActivity() {
 
     // [유지] 현재 켜져 있는 필터 (기본값: 1, 2, 3 전부)
     private var selectedCategoryIds by mutableStateOf(emptySet<Int>())
+
+    private var currentAddress by mutableStateOf("위치 파악 중...")
+
     // 현재 지도에 표시된 미션 데이터 (핀 클릭 시 사용)
     private var currentMissionList: List<MissionInfo> = emptyList()
 
@@ -105,6 +109,8 @@ class MainActivity : AppCompatActivity() {
     // UI 상태: 선택된 미션 정보 (바텀시트 표시용)
     var selectedMissionInfo by mutableStateOf<MissionInfo?>(null)
         private set
+    private val KAKAO_REST_API_KEY = BuildConfig.KAKAO_REST_API_KEY
+
 
     // API 호출 제한 레벨 (이 값보다 줌 레벨이 낮으면 호출 안 함)
     private val MIN_ZOOM_LEVEL_FOR_API = 15
@@ -128,7 +134,6 @@ class MainActivity : AppCompatActivity() {
                 val coroutineScope = rememberCoroutineScope()
 
                 // 건의 모드 관련 상태
-                var currentAddress by remember { mutableStateOf("위치 파악 중...") }
                 var isSuggestionModeActive by remember { mutableStateOf(false) }
 
                 // 쓰레기통 핀 클릭 감지 -> 바텀시트 열기
@@ -242,15 +247,31 @@ class MainActivity : AppCompatActivity() {
                             },
                             onAddBinClick = {
                                 if (isUserLoggedIn()) {
-                                    val currentMapCenter = kakaoMap?.cameraPosition?.position
-                                    if (currentMapCenter != null) {
-                                        val intent = Intent(this@MainActivity, RegisterActivity::class.java).apply {
-                                            putExtra("latitude", currentMapCenter.latitude)
-                                            putExtra("longitude", currentMapCenter.longitude)
-                                        }
-                                        startActivity(intent)
+                                    // 1. 위치 권한 확인
+                                    if (ActivityCompat.checkSelfPermission(
+                                            this@MainActivity,
+                                            Manifest.permission.ACCESS_FINE_LOCATION
+                                        ) != PackageManager.PERMISSION_GRANTED
+                                    ) {
+                                        Toast.makeText(this@MainActivity, "위치 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
                                     } else {
-                                        Toast.makeText(this@MainActivity, "지도가 준비되지 않았습니다.", Toast.LENGTH_SHORT).show()
+                                        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                                            .addOnSuccessListener { location ->
+                                                if (location != null) {
+                                                    // 3. 내 위치 좌표를 담아서 이동
+                                                    val intent = Intent(this@MainActivity, RegisterActivity::class.java).apply {
+                                                        putExtra("latitude", location.latitude)
+                                                        putExtra("longitude", location.longitude)
+                                                    }
+                                                    startActivity(intent)
+                                                } else {
+                                                    Toast.makeText(this@MainActivity, "현재 위치를 찾을 수 없습니다 (GPS 확인 필요)", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                            .addOnFailureListener { e ->
+                                                Log.e("Location", "위치 불러오기 실패", e)
+                                                Toast.makeText(this@MainActivity, "위치 오류가 발생했습니다.", Toast.LENGTH_SHORT).show()
+                                            }
                                     }
                                 } else {
                                     Toast.makeText(this@MainActivity, "등록하기는 로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
@@ -258,14 +279,26 @@ class MainActivity : AppCompatActivity() {
                                 }
                             },
                             onSuggestionClick = {
-                                moveToMyLocation()
-                                lifecycleScope.launch {
-                                    delay(600L)
-                                    val mapCenter = kakaoMap?.cameraPosition?.position
-                                    if (mapCenter != null) {
-                                        currentAddress = getAddressFromCoordinates(mapCenter)
+                                // 1. 로그인 여부 먼저 확인
+                                if (isUserLoggedIn()) {
+                                    // [로그인 O] -> 건의 모드 시작
+                                    moveToMyLocation() // 내 위치로 이동
+
+                                    lifecycleScope.launch {
+                                        delay(600L) // 이동 애니메이션 대기
+                                        val mapCenter = kakaoMap?.cameraPosition?.position
+
+                                        if (mapCenter != null) {
+                                            // 카카오 API로 주소(동) 가져오기
+                                            fetchDongFromKakao(mapCenter.latitude, mapCenter.longitude)
+                                        }
+                                        // 건의 모드 UI 켜기
+                                        isSuggestionModeActive = true
                                     }
-                                    isSuggestionModeActive = true
+                                } else {
+                                    // [로그인 X] -> 로그인 화면으로 이동
+                                    Toast.makeText(this@MainActivity, "건의하기는 로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
+                                    startActivity(Intent(this@MainActivity, LoginActivity::class.java))
                                 }
                             }
                         )
@@ -713,11 +746,13 @@ class MainActivity : AppCompatActivity() {
             }
 
             try {
+                val dongName = extractDongFromAddress(address)
+
                 //  요청 데이터 생성
                 val request = com.example.trashmapv2.data.SuggestCreateRequest(
                     lat = lat,
                     lon = lon,
-                    dong = address
+                    dong = dongName
                 )
 
                 // 3. 서버 전송
@@ -747,6 +782,47 @@ class MainActivity : AppCompatActivity() {
         )
 
         return names.mapNotNull { map[it] }.ifEmpty { listOf(1) }
+    }
+    // 동 뽑아내기
+    private fun extractDongFromAddress(fullAddress: String): String {
+        // 1. 공백으로 쪼갭니다.
+        val split = fullAddress.split(" ")
+
+        // 2. '동'으로 끝나는 단어를 찾습니다.
+        val dong = split.find { it.endsWith("동") }
+
+        // 3. 찾으면 그거 반환, 없으면 그냥 전체 주소 반환
+        return dong ?: fullAddress
+    }
+
+    private fun fetchDongFromKakao(lat: Double, lon: Double) {
+        lifecycleScope.launch {
+            try {
+                val response = KakaoRetrofitClient.service.getAddress(
+                    apiKey = "KakaoAK $KAKAO_REST_API_KEY",
+                    longitude = lon,
+                    latitude = lat
+                )
+
+                if (response.isSuccessful) {
+                    val documents = response.body()?.documents
+                    if (!documents.isNullOrEmpty()) {
+                        // documents[0]은 보통 행정동(H), [1]은 법정동(B) 입니다.
+                        // 둘 중 아무거나 써도 되지만, 보통 [0]번째의 region_3depth_name이 가장 정확한 '동'입니다.
+                        val dongName = documents[0].region3
+                        val guName = documents[0].region2
+
+                        // 화면 갱신 (예: "강서구 등촌동")
+                        currentAddress = "$guName $dongName"
+                        Log.d("KakaoAddr", "주소 변환 성공: $currentAddress")
+                    }
+                } else {
+                    Log.e("KakaoAddr", "실패: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                Log.e("KakaoAddr", "에러", e)
+            }
+        }
     }
 
     override fun onResume() {

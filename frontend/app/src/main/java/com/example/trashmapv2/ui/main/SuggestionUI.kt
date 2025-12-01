@@ -92,7 +92,13 @@ fun SuggestionConfirmBar(
                 Text("취소")
             }
             // "확인" 버튼
-            Button(onClick = onConfirmClick) {
+            Button(
+                onClick = onConfirmClick,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFFFC107),
+                    contentColor = Color.Black
+                )
+            ) {
                 Text("이 위치로 건의")
             }
         }
