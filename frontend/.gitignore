@@ -1,15 +1,25 @@
+# Android / Gradle typical ignores
 *.iml
 .gradle
 /local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
 .DS_Store
 /build
 /captures
 .externalNativeBuild
 .cxx
 local.properties
+*.apk
+*.aab
+
+# Kotlin build cache
+.kotlin/
+
+# IntelliJ / Android Studio project files
+.idea/
+.idea/*
+!.idea/codeStyles/
+!.idea/runConfigurations/
+
+# JVM crash logs
+hs_err_pid*.log
+replay_pid*.log
