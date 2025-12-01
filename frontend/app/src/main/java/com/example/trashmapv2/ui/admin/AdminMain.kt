@@ -21,57 +21,79 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
-import com.example.trashmapv2.ProfileActivity
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Assignment
+import kotlin.jvm.java
+
+// ⭐ 필요한 Activity 파일들을 Import 합니다.
+import com.example.trashmapv2.ProfileActivity
+import com.example.trashmapv2.ui.admin.UserManagementActivity
+import com.example.trashmapv2.ui.admin.TrashManagementActivity
+import com.example.trashmapv2.ui.admin.SuggestionListActivity
+import com.example.trashmapv2.ui.admin.IssueListActivity
 
 // 1. 관리자 메인 화면 컴포저블
 @Composable
 fun AdminMain(navController: NavController) {
+    // Context를 가져와 Intent를 실행하는 데 사용합니다.
     val context = LocalContext.current
 
     Scaffold(
         topBar = {
-            // 상단 앱 바 (헤더)
+            // 뒤로가기 버튼 로직 (ProfileActivity로 이동)
             AdminTopAppBar(onBackClick = {
-                // 뒤로가기 버튼 클릭 시 로직
                 val intent = Intent(context, ProfileActivity::class.java)
                 context.startActivity(intent)
-
-                (context as? Activity)?.finish()
             })
         },
         content = { paddingValues ->
-            // 중앙 컨텐츠 영역
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .padding(horizontal = 30.dp, vertical = 60.dp), // 좌우 여백 추가
+                    .padding(horizontal = 30.dp, vertical = 50.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(50.dp) // 버튼 간의 간격
+                verticalArrangement = Arrangement.spacedBy(60.dp)
             ) {
-                // 2. 관리 메뉴 버튼 리스트
+                // ⭐ 1. 사용자 관리 버튼 -> UserManagementActivity로 연결
                 AdminMenuItem(
                     icon = Icons.Default.Person,
                     text = "사용자 관리",
-                    onClick = { navController.navigate("dummy_user_management") }
+                    onClick = {
+                        val intent = Intent(context, UserManagementActivity::class.java)
+                        context.startActivity(intent)
+                    }
                 )
+
+                // ⭐ 2. 쓰레기통 관리 버튼 -> TrashManagementActivity로 연결
                 AdminMenuItem(
                     icon = Icons.Default.Delete,
                     text = "쓰레기통 관리",
-                    onClick = { navController.navigate("dummy_trash_management") }
+                    onClick = {
+                        val intent = Intent(context, TrashManagementActivity::class.java)
+                        context.startActivity(intent)
+                    }
                 )
+
+                // ⭐ 3. 건의 리스트 버튼 -> SuggestionListActivity로 연결
                 AdminMenuItem(
-                    icon = Icons.Default.List,
+                    icon = Icons.Default.Assignment,
                     text = "건의 리스트",
-                    onClick = { navController.navigate("dummy_suggestion_list") }
+                    onClick = {
+                        val intent = Intent(context, SuggestionListActivity::class.java)
+                        context.startActivity(intent)
+                    }
                 )
+
+                // ⭐ 4. 이슈 리스트 버튼 -> IssueListActivity로 연결
                 AdminMenuItem(
                     icon = Icons.Default.Warning,
                     text = "이슈 리스트",
-                    onClick = { navController.navigate("dummy_issue_list") }
+                    onClick = {
+                        val intent = Intent(context, IssueListActivity::class.java)
+                        context.startActivity(intent)
+                    }
                 )
             }
         }
