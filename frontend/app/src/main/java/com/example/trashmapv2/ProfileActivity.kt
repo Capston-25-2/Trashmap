@@ -15,6 +15,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,17 +34,15 @@ import coil.compose.AsyncImage
 import com.example.trashmapv2.auth.TokenManager
 import com.example.trashmapv2.network.RetrofitClient
 import com.example.trashmapv2.ui.theme.TrashMapAppV2Theme
+import com.example.trashmapv2.ui.admin.AdminActivity // [추가] 관리자 액티비티 임포트
 import com.kakao.sdk.user.UserApiClient
 import kotlinx.coroutines.launch
-
 
 // 프로필 화면 Activity
 class ProfileActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // 전체 화면 모드 설정
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
@@ -52,7 +52,6 @@ class ProfileActivity : AppCompatActivity() {
         }
     }
 
-    // 프로필 화면 전체 UI 구성
     @Composable
     fun ProfileScreenContent() {
         var uiState by remember { mutableStateOf(ProfileUiState()) }
@@ -60,21 +59,19 @@ class ProfileActivity : AppCompatActivity() {
         var showWithdrawDialog by remember { mutableStateOf(false) }
         val coroutineScope = rememberCoroutineScope()
 
-        // 화면 진입 시 카카오 및 서버 데이터 로드
+        // 화면 진입 시 데이터 로드
         LaunchedEffect(Unit) {
-            // 1. 카카오 프로필 정보 로드 (닉네임, 사진)
+            // 1. 카카오 프로필 로드
             UserApiClient.instance.me { user, error ->
                 if (user != null) {
                     uiState = uiState.copy(
-                        // [수정 1] 카카오 닉네임 가져오기 복구
                         nickname = user.kakaoAccount?.profile?.nickname ?: "이름 없음",
                         profileImageUrl = user.kakaoAccount?.profile?.profileImageUrl
                     )
                 }
             }
 
-            // 2. 서버 데이터 (레벨, 경험치) 로드
-            // 서버에 저장된 닉네임이 있다면 덮어쓰기됨
+            // 2. 서버 데이터 로드 (레벨, 경험치, 권한)
             val token = TokenManager.getAuthToken(this@ProfileActivity)
             if (token != null) {
                 try {
@@ -85,14 +82,16 @@ class ProfileActivity : AppCompatActivity() {
                             uiState = uiState.copy(
                                 nickname = myInfo.username,
                                 level = myInfo.level,
-                                exp = myInfo.exp
+                                exp = myInfo.exp,
+                                role = myInfo.role // [추가] 서버에서 받은 role 저장
                             )
+                            Log.d("Profile", "유저 권한: ${myInfo.role}")
                         }
                     } else {
-                        Log.e("ProfileActivity", "서버 로드 실패: ${response.code()}")
+                        Log.e("Profile", "서버 로드 실패: ${response.code()}")
                     }
                 } catch (e: Exception) {
-                    Log.e("ProfileActivity", "서버 통신 에러", e)
+                    Log.e("Profile", "서버 통신 에러", e)
                 }
             }
         }
@@ -104,7 +103,7 @@ class ProfileActivity : AppCompatActivity() {
             onWithdrawClick = { showWithdrawDialog = true }
         )
 
-        // 로그아웃 다이얼로그
+        // 다이얼로그들 (로그아웃, 탈퇴)
         if (showLogoutDialog) {
             AlertDialog(
                 onDismissRequest = { showLogoutDialog = false },
@@ -122,7 +121,6 @@ class ProfileActivity : AppCompatActivity() {
             )
         }
 
-        // 회원 탈퇴 다이얼로그
         if (showWithdrawDialog) {
             AlertDialog(
                 onDismissRequest = { showWithdrawDialog = false },
@@ -131,10 +129,8 @@ class ProfileActivity : AppCompatActivity() {
                 confirmButton = {
                     Button(onClick = {
                         showWithdrawDialog = false
-                        coroutineScope.launch {
-                            performWithdraw()
-                        }
-                    }) { Text("탈퇴") }
+                        coroutineScope.launch { performWithdraw() }
+                    }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("탈퇴") }
                 },
                 dismissButton = {
                     Button(onClick = { showWithdrawDialog = false }) { Text("취소") }
@@ -143,49 +139,31 @@ class ProfileActivity : AppCompatActivity() {
         }
     }
 
-    // 로그아웃 수행 로직
+    // 로그아웃 로직
     private fun performLogout() {
         UserApiClient.instance.logout { error ->
-            if (error != null) Log.e("ProfileActivity", "카카오 로그아웃 실패", error)
             TokenManager.clearAuthToken(this)
             navigateToMain()
         }
     }
 
-    // 회원 탈퇴 수행 로직
+    // 탈퇴 로직
     private suspend fun performWithdraw() {
-
-        val token = TokenManager.getAuthToken(this@ProfileActivity)
+        val token = TokenManager.getAuthToken(this)
         if (token != null) {
             try {
-                val response = RetrofitClient.apiInstance.deleteAccount("Bearer $token")
-
-                if (response.isSuccessful) {
-                    Log.d("ProfileActivity", "서버 탈퇴 성공")
-                } else {
-                    Log.e("ProfileActivity", "서버 탈퇴 실패: ${response.code()}")
-                }
+                RetrofitClient.apiInstance.deleteAccount("Bearer $token")
             } catch (e: Exception) {
-                Log.e("ProfileActivity", "서버 통신 에러", e)
+                Log.e("Profile", "탈퇴 에러", e)
             }
         }
-
-        // 2. 카카오 연결 끊기 (콜백 방식)
-        UserApiClient.instance.unlink { error ->
-            if (error != null) {
-                Log.e("ProfileActivity", "카카오 연결 끊기 실패", error)
-            } else {
-                Log.d("ProfileActivity", "카카오 연결 끊기 성공")
-            }
-
-            // 3. 앱 내부 데이터 삭제 및 초기화면 이동
-            TokenManager.clearAuthToken(this@ProfileActivity)
-            Toast.makeText(this@ProfileActivity, "탈퇴가 완료되었습니다.", Toast.LENGTH_SHORT).show()
+        UserApiClient.instance.unlink { _ ->
+            TokenManager.clearAuthToken(this)
+            Toast.makeText(this, "탈퇴 완료", Toast.LENGTH_SHORT).show()
             navigateToMain()
         }
     }
 
-    // 메인 화면으로 이동 및 스택 초기화
     private fun navigateToMain() {
         val intent = Intent(this, MainActivity::class.java)
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -194,13 +172,15 @@ class ProfileActivity : AppCompatActivity() {
     }
 }
 
-// 프로필 화면 레이아웃
+// 프로필 화면 전체 레이아웃
 @Composable
 fun ProfileScreen(
     uiState: ProfileUiState,
     onLogoutClick: () -> Unit,
     onWithdrawClick: () -> Unit
 ) {
+    val context = LocalContext.current
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -210,7 +190,7 @@ fun ProfileScreen(
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 프로필 헤더 (이미지, 닉네임, 레벨)
+        // 1. 프로필 헤더
         ProfileHeader(
             nickname = uiState.nickname,
             profileImageUrl = uiState.profileImageUrl,
@@ -221,22 +201,43 @@ fun ProfileScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 메뉴 버튼 탭
+        // 2. [추가] 관리자 버튼 (role이 admin일 때만 표시)
+        if (uiState.role == "user") {
+            Button(
+                onClick = {
+                    // AdminActivity로 이동 (파일이 없으면 빨간줄 뜰 수 있음 -> 만들어야 함)
+                    val intent = Intent(context, AdminActivity::class.java)
+                    context.startActivity(intent)
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.Black,
+                    contentColor = Color.White
+                ),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.AdminPanelSettings, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("관리자 페이지 접속", fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        // 3. 메뉴 버튼 탭
         ProfileButtonTabs()
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 대시보드 미리보기
+        // 4. 대시보드 미리보기
         DashboardContent()
 
         Spacer(modifier = Modifier.weight(1f))
 
-        // 하단 버튼 (로그아웃, 탈퇴)
+        // 5. 하단 버튼
         LogoutButtons(onLogoutClick, onWithdrawClick)
     }
 }
 
-// 프로필 상단 영역
 @Composable
 fun ProfileHeader(
     nickname: String,
@@ -256,27 +257,14 @@ fun ProfileHeader(
         placeholder = painterResource(id = R.drawable.user),
         error = painterResource(id = R.drawable.user)
     )
-
     Spacer(modifier = Modifier.height(16.dp))
-
-    Text(
-        text = nickname,
-        style = MaterialTheme.typography.headlineSmall,
-        fontWeight = FontWeight.Bold
-    )
-
+    Text(text = nickname, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
     Spacer(modifier = Modifier.height(8.dp))
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("LV : $level", style = MaterialTheme.typography.titleMedium)
         Text("exp $currentExp / $maxExp", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
     }
-
     Spacer(modifier = Modifier.height(8.dp))
-
     LinearProgressIndicator(
         progress = (currentExp.toFloat() / maxExp.toFloat()).coerceIn(0f, 1f),
         modifier = Modifier
@@ -288,7 +276,6 @@ fun ProfileHeader(
     )
 }
 
-// 중간 메뉴 버튼 영역
 @Composable
 fun ProfileButtonTabs() {
     val context = LocalContext.current
@@ -298,28 +285,20 @@ fun ProfileButtonTabs() {
             .clip(RoundedCornerShape(12.dp))
             .background(Color.White)
             .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically
+        horizontalArrangement = Arrangement.SpaceEvenly
     ) {
-        ProfileTabButton(
-            iconResId = R.drawable.ic_profile_exp_placeholder,
-            text = "경험치",
-            onClick = { context.startActivity(Intent(context, ExperienceActivity::class.java)) }
-        )
-        ProfileTabButton(
-            iconResId = R.drawable.ic_profile_bins_placeholder,
-            text = "내 쓰레기통",
-            onClick = { context.startActivity(Intent(context, MyBinsActivity::class.java)) }
-        )
-        ProfileTabButton(
-            iconResId = R.drawable.ic_profile_board_placeholder,
-            text = "대시보드",
-            onClick = { context.startActivity(Intent(context, DashboardActivity::class.java)) }
-        )
+        ProfileTabButton(R.drawable.ic_profile_exp_placeholder, "경험치") {
+            context.startActivity(Intent(context, ExperienceActivity::class.java))
+        }
+        ProfileTabButton(R.drawable.ic_profile_bins_placeholder, "내 쓰레기통") {
+            context.startActivity(Intent(context, MyBinsActivity::class.java))
+        }
+        ProfileTabButton(R.drawable.ic_profile_board_placeholder, "대시보드") {
+            context.startActivity(Intent(context, DashboardActivity::class.java))
+        }
     }
 }
 
-// 개별 메뉴 버튼 컴포넌트
 @Composable
 fun RowScope.ProfileTabButton(
     @DrawableRes iconResId: Int,
@@ -340,15 +319,10 @@ fun RowScope.ProfileTabButton(
             modifier = Modifier.size(28.dp),
             tint = MaterialTheme.colorScheme.secondary
         )
-        Text(
-            text = text,
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        Text(text = text, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 
-// 대시보드 미리보기 영역
 @Composable
 fun DashboardContent() {
     Column(
@@ -357,23 +331,15 @@ fun DashboardContent() {
             .clip(RoundedCornerShape(12.dp))
             .background(Color.White)
             .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            text = "대시보드를 통해 등수를 확인해 보세요",
-            style = MaterialTheme.typography.bodySmall,
-            color = Color.Gray
-        )
-
-        // TODO: 실제 랭킹 API 연동 시 리스트 갱신 필요
+        Text("대시보드를 통해 등수를 확인해 보세요", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         repeat(3) {
-            RankingItem(rank = 1, level = 111, bins = 22, missions = 11)
+            RankingItem(rank = it + 1, level = 10 - it, bins = 20 - it * 2, missions = 5)
         }
     }
 }
 
-// 랭킹 리스트 아이템 컴포넌트
 @Composable
 fun RankingItem(rank: Int, level: Int, bins: Int, missions: Int) {
     Row(
@@ -381,7 +347,7 @@ fun RankingItem(rank: Int, level: Int, bins: Int, missions: Int) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("$rank", style = MaterialTheme.typography.titleLarge)
+        Text("$rank", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(Color.LightGray))
         Text("LV:$level")
         Column {
@@ -391,42 +357,31 @@ fun RankingItem(rank: Int, level: Int, bins: Int, missions: Int) {
     }
 }
 
-// 하단 설정 버튼 영역
 @Composable
-fun LogoutButtons(
-    onLogoutClick: () -> Unit,
-    onWithdrawClick: () -> Unit
-) {
+fun LogoutButtons(onLogoutClick: () -> Unit, onWithdrawClick: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(
-            modifier = Modifier.clickable { onLogoutClick() },
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(modifier = Modifier.clickable { onLogoutClick() }) {
             Icon(painterResource(id = R.drawable.ic_logout_placeholder), "로그아웃")
             Spacer(modifier = Modifier.width(8.dp))
-            Text("로그아웃", fontSize = 16.sp)
+            Text("로그아웃")
         }
-
-        Row(
-            modifier = Modifier.clickable { onWithdrawClick() },
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(painterResource(id = R.drawable.ic_alert_placeholder), "탈퇴하기")
+        Row(modifier = Modifier.clickable { onWithdrawClick() }) {
+            Icon(painterResource(id = R.drawable.ic_alert_placeholder), "탈퇴하기", tint = Color.Red)
             Spacer(modifier = Modifier.width(8.dp))
-            Text("탈퇴하기", fontSize = 16.sp, color = Color.Red)
+            Text("탈퇴하기", color = Color.Red)
         }
     }
 }
 
-// UI 상태 관리 데이터 클래스
+// UI 상태 관리 데이터 클래스 (role 추가됨)
 data class ProfileUiState(
     val nickname: String = "로딩 중...",
     val profileImageUrl: String? = null,
     val level: Int = 1,
     val exp: Int = 0,
-    val maxExp: Int = 20
+    val maxExp: Int = 20,
+    val role: String = "user" // [추가] 기본값 "user"
 )

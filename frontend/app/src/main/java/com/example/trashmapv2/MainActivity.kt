@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.example.trashmapv2.auth.SuggestionPrefs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -738,12 +739,19 @@ class MainActivity : AppCompatActivity() {
 
     // 건의 사항 서버 전송 함수
     private fun sendSuggestionToServer(lat: Double, lon: Double, address: String) {
+        // 중복 건의 체크 (안드로이드 내부 검사)
+        if (!SuggestionPrefs.canSuggest(this)) {
+            Toast.makeText(this, "건의는 하루에 한 번만 가능합니다.", Toast.LENGTH_SHORT).show()
+            return // 차단
+        }
+
         lifecycleScope.launch {
             val token = TokenManager.getAuthToken(this@MainActivity)
             if (token == null) {
                 Toast.makeText(this@MainActivity, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
                 return@launch
             }
+
 
             try {
                 val dongName = extractDongFromAddress(address)
@@ -759,6 +767,7 @@ class MainActivity : AppCompatActivity() {
                 val response = RetrofitClient.apiInstance.createSuggest("Bearer $token", request)
 
                 if (response.isSuccessful) {
+                    SuggestionPrefs.saveSuggestion(this@MainActivity)
                     Toast.makeText(this@MainActivity, "건의가 접수되었습니다", Toast.LENGTH_LONG).show()
                     Log.d("Suggest", "성공: ${response.body()?.message}")
                 } else {

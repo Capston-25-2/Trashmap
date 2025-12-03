@@ -51,6 +51,9 @@
         <activity
             android:name=".DashboardActivity"
             android:exported="false" />
+        <activity
+            android:name=".ui.admin.AdminActivity"
+            android:exported="false" />
 
         <activity
             android:name=".SplashActivity"
@@ -78,6 +81,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="false" />
+
 
         <provider
             android:name="androidx.core.content.FileProvider"

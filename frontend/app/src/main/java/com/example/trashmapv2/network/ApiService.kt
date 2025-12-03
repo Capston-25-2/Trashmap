@@ -3,11 +3,13 @@ package com.example.trashmapv2.network
 import com.example.trashmapv2.data.BinCreateRequest
 import com.example.trashmapv2.data.BinCreateResponse
 import com.example.trashmapv2.data.ExpHistoryResponse
+import com.example.trashmapv2.data.KakaoSearchResponse
 import com.example.trashmapv2.data.MyBinsResponse
 import com.example.trashmapv2.data.PresignedUrlRequest
 import com.example.trashmapv2.data.PresignedUrlResponse
 import com.example.trashmapv2.data.SuggestCreateRequest
 import com.example.trashmapv2.data.SuggestCreationResponse
+import com.example.trashmapv2.data.SuggestListResponse
 import com.example.trashmapv2.data.User
 import com.google.gson.annotations.SerializedName
 import retrofit2.Response
@@ -198,4 +200,21 @@ interface ApiService {
         @Header("Authorization") token: String,
         @Body request: BinCreateRequest
     ): Response<BinCreateResponse>
+
+    @GET("v2/local/search/address.json")
+    suspend fun searchAddress(
+        @Header("Authorization") apiKey: String,
+        @Query("query") query: String, // 검색어
+        @Query("analyze_type") analyzeType: String = "similar" // 유사 검색
+    ): Response<KakaoSearchResponse>
+
+    // 건의 리스트 조회 (관리자용)
+    @GET("/suggest/")
+    suspend fun getAdminSuggestList(
+        @Header("Authorization") token: String,
+        @Query("dong") dong: List<String>?, // 동 이름 (없으면 전체)
+        @Query("status") status: List<String>? = listOf("pending"), // 기본적으로 미처리 건만
+        @Query("offset") offset: Int,
+        @Query("limit") limit: Int
+    ): Response<SuggestListResponse>
 }

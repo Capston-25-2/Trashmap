@@ -5,191 +5,234 @@ import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Assignment
-import kotlin.jvm.java
-
-// ⭐ 필요한 Activity 파일들을 Import 합니다.
+import com.example.trashmapv2.BuildConfig
 import com.example.trashmapv2.ProfileActivity
-import com.example.trashmapv2.ui.admin.UserManagementActivity
-import com.example.trashmapv2.ui.admin.TrashManagementActivity
-import com.example.trashmapv2.ui.admin.SuggestionListActivity
-import com.example.trashmapv2.ui.admin.IssueListActivity
+import com.example.trashmapv2.data.KakaoSearchDocument
+import com.example.trashmapv2.network.KakaoRetrofitClient
+import kotlinx.coroutines.launch
+import com.example.trashmapv2.auth.AdminPrefs
+// 1. 경로 이름 정의
+object AdminRoutes {
+    const val MENU = "admin_menu"
+    const val USER = "user_manage"
+    const val TRASH = "trash_manage"
+    const val SUGGEST = "suggestion_list"
+    const val ISSUE = "issue_list"
+}
 
-// 1. 관리자 메인 화면 컴포저블
+// 2. 메인 네비게이션 호스트
 @Composable
-fun AdminMain(navController: NavController) {
-    // Context를 가져와 Intent를 실행하는 데 사용합니다.
+fun AdminMain() {
+    val navController = rememberNavController()
+
+    NavHost(navController = navController, startDestination = AdminRoutes.MENU) {
+        // 메인 메뉴
+        composable(AdminRoutes.MENU) {
+            AdminMenuScreen(navController)
+        }
+        // 각 서브 화면 (파일이 만들어져 있어야 빨간줄 안 뜸)
+        composable(AdminRoutes.USER) { UserManagementScreen(navController) }
+        composable(AdminRoutes.TRASH) { TrashManagementScreen(navController) }
+        composable(AdminRoutes.SUGGEST) { SuggestionListScreen(navController) }
+        composable(AdminRoutes.ISSUE) { IssueListScreen(navController) }
+    }
+}
+
+// 3. 관리자 메뉴 화면
+@Composable
+fun AdminMenuScreen(navController: NavController) {
     val context = LocalContext.current
+    var showDialog by remember { mutableStateOf(false) } // 팝업 상태
+
+    var selectedDong by remember {
+        mutableStateOf(AdminPrefs.getJurisdiction(context) ?: "관할 지역 없음")
+    }
+
+    // 팝업 다이얼로그가 켜지면 보여줌
+    if (showDialog) {
+        JurisdictionSearchDialog(
+            onDismiss = { showDialog = false },
+            onDongSelected = { dongName ->
+                selectedDong = dongName
+                AdminPrefs.saveJurisdiction(context, dongName)
+                showDialog = false
+            }
+        )
+    }
 
     Scaffold(
+        modifier = Modifier.statusBarsPadding(),
         topBar = {
-            // 뒤로가기 버튼 로직 (ProfileActivity로 이동)
-            AdminTopAppBar(onBackClick = {
+            AdminTopAppBar(title = "관리자 메뉴", onBackClick = {
+                // 프로필로 돌아가기
                 val intent = Intent(context, ProfileActivity::class.java)
+                intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 context.startActivity(intent)
+                (context as? Activity)?.finish()
             })
-        },
-        content = { paddingValues ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(horizontal = 30.dp, vertical = 50.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(60.dp)
-            ) {
-                // ⭐ 1. 사용자 관리 버튼 -> UserManagementActivity로 연결
-                AdminMenuItem(
-                    icon = Icons.Default.Person,
-                    text = "사용자 관리",
-                    onClick = {
-                        val intent = Intent(context, UserManagementActivity::class.java)
-                        context.startActivity(intent)
-                    }
-                )
-
-                // ⭐ 2. 쓰레기통 관리 버튼 -> TrashManagementActivity로 연결
-                AdminMenuItem(
-                    icon = Icons.Default.Delete,
-                    text = "쓰레기통 관리",
-                    onClick = {
-                        val intent = Intent(context, TrashManagementActivity::class.java)
-                        context.startActivity(intent)
-                    }
-                )
-
-                // ⭐ 3. 건의 리스트 버튼 -> SuggestionListActivity로 연결
-                AdminMenuItem(
-                    icon = Icons.Default.Assignment,
-                    text = "건의 리스트",
-                    onClick = {
-                        val intent = Intent(context, SuggestionListActivity::class.java)
-                        context.startActivity(intent)
-                    }
-                )
-
-                // ⭐ 4. 이슈 리스트 버튼 -> IssueListActivity로 연결
-                AdminMenuItem(
-                    icon = Icons.Default.Warning,
-                    text = "이슈 리스트",
-                    onClick = {
-                        val intent = Intent(context, IssueListActivity::class.java)
-                        context.startActivity(intent)
-                    }
-                )
-            }
         }
-    )
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(30.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            //  관할 동 설정 버튼 (맨 위에 배치)
+            AdminMenuItem(Icons.Default.LocationCity, "관할: $selectedDong") {
+                showDialog = true
+            }
+
+            // 기존 네비게이션 메뉴들
+            AdminMenuItem(Icons.Default.Person, "사용자 관리") { navController.navigate(AdminRoutes.USER) }
+            AdminMenuItem(Icons.Default.Delete, "쓰레기통 관리") { navController.navigate(AdminRoutes.TRASH) }
+            AdminMenuItem(Icons.Default.Assignment, "건의 리스트") { navController.navigate(AdminRoutes.SUGGEST) }
+            AdminMenuItem(Icons.Default.Warning, "이슈 리스트") { navController.navigate(AdminRoutes.ISSUE) }
+        }
+    }
 }
 
-// ---
+// --- 공통 컴포넌트 ---
 
-// 3. 상단 앱 바 컴포저블
 @Composable
-fun AdminTopAppBar(onBackClick: () -> Unit) {
-    // 이미지의 상단 바와 유사한 회색 배경과 구조를 구현합니다.
+fun AdminTopAppBar(title: String, onBackClick: () -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(60.dp) // 높이 지정
-            .background(Color(0xFFE0E0E0)) // 연한 회색 배경
-            .padding(horizontal = 10.dp),
+        modifier = Modifier.fillMaxWidth().height(60.dp).background(Color(0xFFE0E0E0)).padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 왼쪽 상단 뒤로가기 버튼
         IconButton(onClick = onBackClick) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "뒤로가기",
-                tint = Color.Black // 아이콘 색상
-            )
+            Icon(Icons.Default.ArrowBack, contentDescription = "뒤로가기", tint = Color.Black)
         }
-
-        Spacer(modifier = Modifier.weight(1f)) // 중앙 정렬을 위한 공간
-
-        // '관리자 메뉴' 텍스트 (가운데 정렬)
-        Text(
-            text = "관리자 메뉴",
-            fontSize = 24.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(end = 50.dp) // 뒤로가기 아이콘 너비만큼 여백 조정
-        )
-
         Spacer(modifier = Modifier.weight(1f))
+        Text(text = title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Color.Black)
+        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.width(48.dp))
     }
 }
 
-// ---
-
-// 4. 메뉴 항목 버튼 컴포저블
 @Composable
-fun AdminMenuItem(
-    icon: ImageVector,
-    text: String,
-    onClick: () -> Unit
-) {
-    // 이미지의 버튼과 유사한 회색 배경의 큰 사각형 버튼을 구현합니다.
+fun AdminMenuItem(icon: ImageVector, text: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(100.dp) // 버튼 높이 지정
-            .background(
-                color = Color(0xFFE0E0E0), // 연한 회색 배경
-                shape = MaterialTheme.shapes.small // 모서리 둥글게 처리 (선택 사항)
-            )
+            .height(80.dp)
+            .background(Color(0xFFEEEEEE), MaterialTheme.shapes.medium)
             .clickable(onClick = onClick)
             .padding(horizontal = 20.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Start // 내용을 왼쪽으로 정렬
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // 아이콘 (사용자, 쓰레기통 등)
-        Icon(
-            imageVector = icon,
-            contentDescription = text,
-            modifier = Modifier.size(56.dp), // 아이콘 크기
-            tint = Color.Black
-        )
-
-        Spacer(modifier = Modifier.width(40.dp)) // 아이콘과 텍스트 사이 간격
-
-        // 메뉴 이름 텍스트
-        Text(
-            text = text,
-            fontSize = 32.sp,
-            fontWeight = FontWeight.Medium,
-            color = Color.Black
-        )
+        Icon(icon, contentDescription = null, modifier = Modifier.size(36.dp), tint = Color.Black)
+        Spacer(modifier = Modifier.width(24.dp))
+        Text(text, fontSize = 20.sp, fontWeight = FontWeight.Medium, color = Color.Black)
     }
 }
 
-// ---
-
-// 5. 프리뷰
-@Preview(showBackground = true)
 @Composable
-fun AdminMainPreview() {
-    // NavController가 필요한 컴포저블을 미리 볼 수 있도록 더미 NavController를 사용합니다.
-    val dummyNavController = rememberNavController()
-    // MaterialTheme을 적용하여 UI 요소의 디자인 시스템을 사용합니다.
-    MaterialTheme {
-        AdminMain(navController = dummyNavController)
+fun SubScreenLayout(title: String, navController: NavController, content: @Composable () -> Unit) {
+    Scaffold(
+        modifier = Modifier.statusBarsPadding(),
+        topBar = { AdminTopAppBar(title = title, onBackClick = { navController.popBackStack() }) }
+    ) { padding ->
+        Box(modifier = Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
+            content()
+        }
+    }
+}
+
+// [새로 추가] 검색 다이얼로그
+@Composable
+fun JurisdictionSearchDialog(
+    onDismiss: () -> Unit,
+    onDongSelected: (String) -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf<List<KakaoSearchDocument>>(emptyList()) }
+    val coroutineScope = rememberCoroutineScope()
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = MaterialTheme.shapes.medium,
+            color = Color.White,
+            modifier = Modifier.fillMaxWidth().height(500.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("관할 지역 검색", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 검색창 & 버튼
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        placeholder = { Text("예: 등촌동") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(onClick = {
+                        // 검색 API 호출
+                        coroutineScope.launch {
+                            try {
+                                val response = KakaoRetrofitClient.service.searchAddress(
+                                    apiKey = "KakaoAK ${BuildConfig.KAKAO_REST_API_KEY}",
+                                    query = query
+                                )
+                                if (response.isSuccessful) {
+                                    searchResults = response.body()?.documents ?: emptyList()
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }) {
+                        Text("검색")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 검색 결과 리스트
+                if (searchResults.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("검색 결과가 없습니다.", color = Color.Gray)
+                    }
+                } else {
+                    LazyColumn {
+                        items(searchResults.size) { index ->
+                            val item = searchResults[index]
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onDongSelected(item.addressName) } // 클릭 시 선택
+                                    .padding(vertical = 12.dp)
+                            ) {
+                                Icon(Icons.Default.Place, contentDescription = null, tint = Color.Gray)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(item.addressName, fontSize = 16.sp)
+                            }
+                            Divider(color = Color.LightGray)
+                        }
+                    }
+                }
+            }
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.example.trashmapv2.network
 
 import com.example.trashmapv2.data.KakaoGeoResponse
+import com.example.trashmapv2.data.KakaoSearchResponse
 import retrofit2.Response
 import retrofit2.http.GET
 import retrofit2.http.Header
@@ -14,4 +15,11 @@ interface KakaoApiService {
         @Query("x") longitude: Double, // 경도
         @Query("y") latitude: Double   // 위도
     ): Response<KakaoGeoResponse>
+
+    @GET("v2/local/search/address.json")
+    suspend fun searchAddress(
+        @Header("Authorization") apiKey: String,
+        @Query("query") query: String,
+        @Query("analyze_type") analyzeType: String = "similar"
+    ): Response<KakaoSearchResponse>
 }

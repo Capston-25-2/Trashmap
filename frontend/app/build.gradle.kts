@@ -78,7 +78,7 @@ dependencies {
     implementation(libs.material)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.constraintlayout)
-    implementation("androidx.compose.material:material-icons-extended:1.6.0")
+    implementation("androidx.compose.material:material-icons-extended")
     implementation("io.coil-kt:coil-compose:2.5.0")
     // ... (기존 카카오, 레트로핏 등) ...
     implementation("com.google.android.material:material:1.12.0")
@@ -93,7 +93,6 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2023.08.00")) // BOM
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3") // Material 3 (Scaffold, NavigationBar 등)
-    implementation("androidx.navigation:navigation-compose:2.8.3") // Or use a recent version
     implementation("androidx.compose.ui:ui-tooling-preview") // 미리보기용
     debugImplementation("androidx.compose.ui:ui-tooling")
     // --- ⬆️ Jetpack Compose 핵심 의존성 추가 ⬆️ ---
@@ -110,4 +109,7 @@ dependencies {
     implementation("androidx.camera:camera-view:${cameraxVersion}")
 
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.compose.material:material-icons-extended:1.6.0")
+    implementation("androidx.navigation:navigation-compose:2.7.7")
+    implementation("androidx.compose.material:material-icons-extended:1.6.0")
 }
