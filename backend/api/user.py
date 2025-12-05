@@ -9,6 +9,7 @@ from db.database import get_db
 from model import models
 from schema import schemas
 from api.auth import get_current_user, check_admin
+from model.models import UserRole
 
 router = APIRouter(
     prefix="/user",
@@ -292,3 +293,49 @@ async def get_user_list(
         total_count = total_count,
         data = users
     )
+
+# PATCH /user/{userId} API (관리자용)
+@router.patch("/user/{userId}", response_model=schemas.User)
+async def update_user_admin(
+    userId: int,
+    update_data: schemas.UserAdminUpdate,
+    current_user: models.User = Depends(check_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    관리자용 유저 정보 변환
+    role: (admin, user) 일반 유저와 관리자를 변경할 수 있음
+    status: (active, banned) 
+    """
+
+    user = await db.get(models.User, userId)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="해당 유저를 찾을 수 없습니다."
+        )
+    
+    if update_data.role:
+        try:
+            user.role = UserRole[update_data.role]
+        except KeyError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="유효하지 않은 role입니다."
+            )
+        
+    if update_data.status:
+        allowed_status = ["active", "banned"]
+
+        if update_data.status not in allowed_status:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="status는 'active' 또는 'banned'여야 합니다."
+            )
+        
+        user.status = update_data.status
+        
+    await db.commit()
+    await db.refresh(user)
+
+    return user
