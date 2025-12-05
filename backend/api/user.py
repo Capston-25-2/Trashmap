@@ -8,7 +8,7 @@ from typing import List, Union
 from db.database import get_db
 from model import models
 from schema import schemas
-from api.auth import get_current_user
+from api.auth import get_current_user, check_admin
 
 router = APIRouter(
     prefix="/user",
@@ -251,4 +251,44 @@ async def get_leaderboard(
     return schemas.LeaderboardResponse(
         total_users = total_users,
         rankings = ranking_data
+    )
+
+# GET /user API (관리자용)
+@router.get("/", response_model=schemas.UserListResponse)
+async def get_user_list(
+    username: str = Query(None, description="유저 닉네임 검색"),
+    role: str = Query(None, description="권한 필터(admin, user)"),
+    offset: int = 0,
+    limit: int = 20,
+    current_user: models.User = Depends(check_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    query = (
+        select(models.User)
+        .order_by(desc(models.User.created_at))
+    )
+
+    # 검색 필터링
+    if username:
+        query = query.where(models.User.username.like(f"%{username}%"))
+    
+    if role:
+        query = query.where(models.User.role == role)
+    
+    count_query = (
+        select(func.count())
+        .select_from(query.subquery())
+    )
+
+    query = query.offset(offset).limit(limit)
+
+    result = await db.execute(query)
+    users = result.scalars().all()
+
+    count_result = await db.execute(count_query)
+    total_count = count_result.scalar()
+
+    return schemas.UserListResponse(
+        total_count = total_count,
+        data = users
     )

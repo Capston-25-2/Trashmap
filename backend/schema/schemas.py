@@ -192,5 +192,5 @@ class UserListResponse(BaseModel):
     data: List[User]
 
 class UserAdminUpdate(BaseModel):
-    role: Optional[str] = Field(..., description="변경할 권한 (user, admin)")
-    
+    role: Optional[str] = Field(None, description="변경할 권한 (user, admin)")
+    status: Optional[str] = Field(None, description="변경할 유저 상태 (active, banned)")
