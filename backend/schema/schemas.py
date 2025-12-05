@@ -186,3 +186,11 @@ class IssueListResponse(BaseModel):
 
 class IssueStatusUpdate(BaseModel):
     status: str
+
+class UserListResponse(BaseModel):
+    total_count: int
+    data: List[User]
+
+class UserAdminUpdate(BaseModel):
+    role: Optional[str] = Field(..., description="변경할 권한 (user, admin)")
+    

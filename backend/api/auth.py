@@ -74,6 +74,21 @@ async def check_admin(
     
     return current_user
 
+# "active" 유저인지 검사
+async def check_active_user(
+        current_user: models.User = Depends(get_current_user)
+) -> models.User:
+    """
+    계정이 정지된 상태인지 확인 (if status == 'banned')
+    """
+    if current_user.status == 'banned':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="계정이 정지되어 활동할 수 없습니다. 관리자에게 문의하세요."
+        )
+
+    return current_user
+
 # --- API 엔드포인트 ---
 
 @router.post("/login", response_model=schemas.Token)

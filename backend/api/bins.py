@@ -17,7 +17,7 @@ from db.database import get_db
 from model import models
 from model.models import UserRole
 from schema import schemas
-from api.auth import get_current_user, check_admin
+from api.auth import get_current_user, check_admin, check_active_user
 from tasks.bin_processor import process_bin_image_task
 from utils import give_exp_async
 
@@ -46,7 +46,7 @@ s3_client = boto3.client(
 @router.post("/presigned-url", response_model=schemas.PresignedUrlResponse)
 async def get_presigned_url(
     file_request: schemas.PresignedUrlRequest,
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(check_active_user)
 ):
     # S3에 이미지를 업로드할 수 있는 임시 Presigned URL을 발급
     # 1. 고유한 파일 키(경로) 설정
@@ -142,7 +142,7 @@ async def get_trashcan_in_bounds(
 @router.post("/", response_model = schemas.JobAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
 async def create_trashcan(
     bin_data: schemas.TrashcanCreate,
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(check_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """ 새로운 쓰레기통 등록 요청 접수
@@ -261,7 +261,7 @@ async def get_trashcan_details(
 async def update_trashcan_details(
     binId: int,
     update_data: schemas.TrashcanUpdate,
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(check_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     
@@ -340,7 +340,7 @@ async def update_trashcan_details(
 async def create_report(
     binId: int,
     report_data: schemas.ReportCreate,
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(check_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     # 특정 쓰레기통에 대한 문제 신고
