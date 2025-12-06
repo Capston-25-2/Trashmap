@@ -1,10 +1,10 @@
 # FastAPI 및 기본 모듈 임포트
-from fastapi import APIRouter, Depends, HTTPException, status, File, Form, UploadFile, Response
+from fastapi import APIRouter, Depends, HTTPException, status, File, Form, UploadFile, Response, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload # N + 1 문제 방지
-from sqlalchemy import func
-from typing import List
+from sqlalchemy import func, desc, or_
+from typing import List, Optional
 import uuid
 from geoalchemy2.shape import from_shape
 from geoalchemy2.functions import ST_MakeEnvelope
@@ -472,3 +472,71 @@ async def delete_trashcan(
     await db.commit()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# GET /bins/admin API
+@router.get("/admin", response_model=schemas.BinListResponse)
+async def get_bin_list(
+    dong: Optional[list[str]] = Query(None, description="동 필터"),
+    author: Optional[list[str]] = Query(None, description="유저 닉네임 필터"),
+    offset: int = 0,
+    limit: int = 20,
+    current_user: models.User = Depends(check_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    쓰레기통의 리스트를 조회합니다.
+    동, 등록 유저를 필터링 할 수 있습니다.
+    관리자만 이 기능을 사용할 수 있습니다.
+    """
+
+    query = (
+        select(models.Trashcan)
+        .join(models.User)
+        .options(
+            selectinload(models.Trashcan.user),
+            selectinload(models.Trashcan.categories)
+        )
+        .order_by(desc(models.Trashcan.created_at))
+    )
+
+    if dong:
+        conditions = [models.Trashcan.dong.like(f"%{d}%") for d in dong]
+        query = query.where(or_(*conditions))
+    
+    if author:
+        query = query.where(models.User.username.in_(author))
+
+    count_query = (
+        select(func.count())
+        .select_from(query.subquery())
+    )
+
+    query = query.offset(offset).limit(limit)
+
+    result = await db.execute(query)
+    trashcans = result.scalars().all()
+
+    count_result = await db.execute(count_query)
+    total_count = count_result.scalar()
+
+    data_list = []
+    for t in trashcans:
+        data_list.append(schemas.BinListAdmin(
+            trashcan_id = t.trashcan_id,
+            body = t.body,
+            author = schemas.BinAuthor(user_id = t.user_id, username = t.user.username),
+            created_at = t.created_at,
+            categories = [c.category_id for c in t.categories],
+            lat = t.latitude,
+            lon = t.longitude,
+            img_url = t.img_url,
+            is_congested = t.is_congested,
+            is_verified = t.is_verified,
+            status = t.status,
+            dong = t.dong or ""
+        ))
+    return schemas.BinListResponse(
+        total_count=total_count,
+        data=data_list
+    )

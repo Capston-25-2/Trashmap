@@ -58,6 +58,7 @@ class Trashcan(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
     # 'pending_validation', 'approved', 'rejected'
     status = Column(VARCHAR(20), nullable=False, default='pending_validation')
+    dong = Column(VARCHAR(20), nullable=True)
     
     # 양방향 관계 설정
     user = relationship("User", back_populates="trashcans")
