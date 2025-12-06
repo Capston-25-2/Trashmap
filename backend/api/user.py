@@ -259,6 +259,7 @@ async def get_leaderboard(
 async def get_user_list(
     username: str = Query(None, description="유저 닉네임 검색"),
     role: str = Query(None, description="권한 필터(admin, user)"),
+    status: str = Query(None, description="상태 필터 (active, banned)"),
     offset: int = 0,
     limit: int = 20,
     current_user: models.User = Depends(check_admin),
@@ -275,6 +276,9 @@ async def get_user_list(
     
     if role:
         query = query.where(models.User.role == role)
+
+    if status:
+        query = query.where(models.User.status == status)
     
     count_query = (
         select(func.count())
@@ -339,3 +343,47 @@ async def update_user_admin(
     await db.refresh(user)
 
     return user
+
+# GET /user/{userId}/detail API
+@router.get("/{userId}/detail", response_model=schemas.UserAdminDetail)
+async def get_user_detail(
+    userId: int,
+    current_user: models.User = Depends(check_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    특정 유저의 상세 정보와 활동 내역 조회
+    관리자만 이 기능을 사용할 수 있습니다.
+    """
+
+    query = (
+        select(models.User)
+        .options(
+            selectinload(models.User.trashcans),
+            selectinload(models.User.reports).options(
+                selectinload(models.Report.trashcan),
+                selectinload(models.Report.issue),
+                selectinload(models.Report.report_type)
+            )
+        )
+        .where(models.User.user_id == userId)
+    )
+
+    result = await db.execute(query)
+    user = result.scalar()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="해당 유저를 찾을 수 없습니다."
+        )
+    
+    return schemas.UserAdminDetail(
+        user = user,
+        status = user.status,
+        role = user.role,
+        created_at= user.created_at,
+
+        trashcans = user.trashcans,
+        reports = user.reports
+    )

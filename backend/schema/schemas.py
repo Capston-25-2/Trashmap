@@ -212,3 +212,12 @@ class BinListAdmin(BaseModel):
 class BinListResponse(BaseModel):
     total_count: int
     data: List[BinListAdmin]
+
+class UserAdminDetail(BaseModel):
+    user: User
+    status: int
+    role: str
+    created_at: datetime
+
+    trashcans: List[MyBin]
+    reports: List[MyReport]
