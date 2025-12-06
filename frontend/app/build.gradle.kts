@@ -90,7 +90,7 @@ dependencies {
 
     // --- ⬇️ 6. Jetpack Compose 핵심 의존성 추가 ⬇️ ---
     implementation("androidx.activity:activity-compose:1.8.0") // (최신 버전 확인)
-    implementation(platform("androidx.compose:compose-bom:2023.08.00")) // BOM
+    implementation(platform("androidx.compose:compose-bom:2024.09.03"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3") // Material 3 (Scaffold, NavigationBar 등)
     implementation("androidx.compose.ui:ui-tooling-preview")

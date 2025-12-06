@@ -74,9 +74,9 @@ fun MapFilterTopBar(
                     containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface
                 ),
                 border = AssistChipDefaults.assistChipBorder(
-                    // 선택되면 테두리 없음(null), 아니면 회색 테두리
-                    borderWidth = if (isSelected) 0.dp else 1.dp,
-                    borderColor = if (isSelected) Color.Transparent else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                    enabled = true,
+                    borderColor = if (isSelected) Color.Transparent else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                    borderWidth = if (isSelected) 0.dp else 1.dp
                 )
             )
         }
