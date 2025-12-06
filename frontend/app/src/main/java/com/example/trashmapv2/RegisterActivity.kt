@@ -57,10 +57,9 @@ class RegisterActivity : ComponentActivity() {
                     lat = lat,
                     lon = lon,
                     onBackClick = { finish() },
-                    onRegisterClick = { categories, photoUri, description ->
-                        // 등록 버튼 누르면 3단계 업로드 시작
+                    onRegisterClick = { categories, photoUri, description, address ->
                         if (photoUri != null) {
-                            uploadAndRegisterBin(lat, lon, categories, photoUri, description)
+                            uploadAndRegisterBin(lat, lon, categories, photoUri, description, address)
                         } else {
                             Toast.makeText(this, "사진을 촬영해주세요.", Toast.LENGTH_SHORT).show()
                         }
@@ -76,7 +75,8 @@ class RegisterActivity : ComponentActivity() {
         lon: Double,
         categories: List<Int>,
         imageUri: Uri,
-        description: String
+        description: String,
+        address: String
     ) {
         lifecycleScope.launch {
             val token = TokenManager.getAuthToken(this@RegisterActivity)
@@ -137,9 +137,7 @@ class RegisterActivity : ComponentActivity() {
 
                 Log.d("Upload", "2단계 성공: S3 업로드 완료")
 
-                // -------------------------------------------------
                 // 3단계: 서버에 최종 등록 요청 (POST /bins)
-                // -------------------------------------------------
                 val binRequest = BinCreateRequest(
                     lat = lat,
                     lon = lon,
@@ -147,6 +145,7 @@ class RegisterActivity : ComponentActivity() {
                     description = description,
                     isCongested = false,
                     isVerified = false,
+                    dong = extractDongFromAddress(address),
                     s3FileKey = s3FileKey // [중요] S3 키를 여기에 넣어서 보냄
                 )
 
@@ -167,6 +166,11 @@ class RegisterActivity : ComponentActivity() {
             }
         }
     }
+    private fun extractDongFromAddress(fullAddress: String): String {
+        val split = fullAddress.split(" ")
+        val dong = split.find { it.endsWith("동") }
+        return dong ?: fullAddress
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -175,7 +179,7 @@ fun RegisterScreen(
     lat: Double,
     lon: Double,
     onBackClick: () -> Unit,
-    onRegisterClick: (List<Int>, Uri?, String) -> Unit // 파라미터 추가 (URI, 설명)
+    onRegisterClick: (List<Int>, Uri?, String, String) -> Unit // 파라미터 추가 (URI, 설명)
 ) {
     var isCameraOpen by remember { mutableStateOf(false) }
     var photoUri by remember { mutableStateOf<Uri?>(null) }
@@ -313,7 +317,7 @@ fun RegisterScreen(
                 // 5. 등록 버튼
                 Button(
                     // 클릭 시 사진과 설명을 함께 전달
-                    onClick = { onRegisterClick(selectedCategories, photoUri, descriptionText) },
+                    onClick = { onRegisterClick(selectedCategories, photoUri, descriptionText, addressText) },
                     enabled = selectedCategories.isNotEmpty() && photoUri != null,
                     modifier = Modifier.fillMaxWidth().height(56.dp)
                 ) {

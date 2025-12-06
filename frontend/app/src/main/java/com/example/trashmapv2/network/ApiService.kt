@@ -1,102 +1,70 @@
 package com.example.trashmapv2.network
 
-import com.example.trashmapv2.data.BinCreateRequest
-import com.example.trashmapv2.data.BinCreateResponse
-import com.example.trashmapv2.data.ExpHistoryResponse
-import com.example.trashmapv2.data.KakaoSearchResponse
-import com.example.trashmapv2.data.MyBinsResponse
-import com.example.trashmapv2.data.PresignedUrlRequest
-import com.example.trashmapv2.data.PresignedUrlResponse
-import com.example.trashmapv2.data.SuggestCreateRequest
-import com.example.trashmapv2.data.SuggestCreationResponse
-import com.example.trashmapv2.data.SuggestListResponse
-import com.example.trashmapv2.data.User
+import com.example.trashmapv2.data.*
 import com.google.gson.annotations.SerializedName
-import retrofit2.Response
-import retrofit2.http.Body
-import retrofit2.http.DELETE
-import retrofit2.http.GET
-import retrofit2.http.Header
-import retrofit2.http.POST
-import retrofit2.http.Path
-import retrofit2.http.Query
 import okhttp3.RequestBody
-import retrofit2.http.PUT
-import retrofit2.http.Url
-
-//import retrofit2.http.Query
+import retrofit2.Response
+import retrofit2.http.*
 
 // ==========================================
 // [1] 데이터 모델 (DTO) 정의
 // ==========================================
 
-// 1-1. [진짜 서버용] 로그인 요청/응답
+// --- 로그인 ---
 data class KakaoLoginRequest(
-    @SerializedName("access_token")
-    val kakaoAccessToken: String
+    @SerializedName("access_token") val kakaoAccessToken: String
 )
 
 data class LoginResponse(
-    @SerializedName("access_token")
-    val accessToken: String,
-    @SerializedName("refresh_token")
-    val refreshToken: String
+    @SerializedName("access_token") val accessToken: String,
+    @SerializedName("refresh_token") val refreshToken: String
 )
 
-// 1-2. [Mock 서버용] 사용자 정보 응답 (/user/me)
+// --- 사용자 정보 ---
 data class UserInfoResponse(
     @SerializedName("username") val username: String,
     @SerializedName("level") val level: Int
 )
 
-// 1-3. [Mock 서버용] 쓰레기통 목록 응답 (/bins)
-// (Postman Example에 넣어둔 JSON 구조와 같아야 함)
+// --- 쓰레기통 목록 ---
 data class BinListResponse(
     @SerializedName("data") val data: List<BinItem>
 )
 
-
 data class BinItem(
     @SerializedName("trashcan_id") val id: Int,
-
     @SerializedName("lat") val lat: Double,
     @SerializedName("lon") val lon: Double,
-
     @SerializedName("categories") val categories: List<String>?,
     @SerializedName("is_congested") val isCongested: Boolean,
     @SerializedName("is_verified") val isVerified: Boolean
 )
 
-
-
-// 보낼 데이터 (Body)
+// --- 신고 ---
 data class ReportRequest(
-    @SerializedName("report_type_id") val reportType: Int, // 1: 꽉참
+    @SerializedName("report_type_id") val reportType: Int,
     @SerializedName("description") val description: String
 )
 
-// 받을 데이터 (Response)
 data class ReportResponse(
     @SerializedName("success") val success: Boolean,
     @SerializedName("message") val message: String
 )
 
-// 1. [보낼 데이터] 쓰레기통 등록 정보
+// --- 쓰레기통 등록 (구형 & 신형 통합 고려) ---
 data class TrashcanCreateRequest(
     @SerializedName("lat") val lat: Double,
     @SerializedName("lon") val lon: Double,
-    @SerializedName("categories") val categories: List<Int>, // [1, 2]
-    @SerializedName("s3_file_key") val s3FileKey: String, // "image.jpg" (Mock용)
+    @SerializedName("categories") val categories: List<Int>,
+    @SerializedName("s3_file_key") val s3FileKey: String,
     @SerializedName("is_congested") val isCongested: Boolean = false,
-    @SerializedName("is_verified") val isVerified: Boolean = false // 사용자가 등록하니까 false
+    @SerializedName("is_verified") val isVerified: Boolean = false
 )
 
-// 2. [받을 데이터] 등록 결과
 data class TrashcanCreateResponse(
     @SerializedName("message") val message: String,
     @SerializedName("trashcan_id") val trashcanId: Int
 )
-
 
 
 // ==========================================
@@ -105,49 +73,25 @@ data class TrashcanCreateResponse(
 interface ApiService {
 
     // ----------------------------------------------------
-    // 1. [Real Server] 로그인 (authInstance 사용)
+    // 1. 인증 (Auth)
     // ----------------------------------------------------
+    // 카카오 로그인
     @POST("/auth/login")
-    suspend fun kakaoLogin( // 'suspend' 키워드 추가! (코루틴용)
-        @Body request: KakaoLoginRequest
-    ): Response<LoginResponse> // Response<T>로 감싸면 성공/실패 처리가 쉬워짐
+    suspend fun kakaoLogin(@Body request: KakaoLoginRequest): Response<LoginResponse>
 
 
     // ----------------------------------------------------
-    // 2. [Mock Server] 사용자 정보 조회 (apiInstance 사용)
+    // 2. 사용자 (User)
     // ----------------------------------------------------
+    // 내 정보 조회
     @GET("/user/me")
-    suspend fun getUserInfo(): Response<UserInfoResponse>
+    suspend fun getMyInfo(@Header("Authorization") token: String): Response<User>
 
+    // 회원 탈퇴
+    @DELETE("/user/me")
+    suspend fun deleteAccount(@Header("Authorization") token: String): Response<Unit>
 
-    // ----------------------------------------------------
-    // 3. [Mock Server] 쓰레기통 목록 조회 (apiInstance 사용)
-    // ----------------------------------------------------
-    @GET("/bins")
-    suspend fun getBins(
-        @Header("Authorization") token: String?,
-        @Query("sw_lat") swLat: Double, // 지도 영역 (기본값 대충 넣음)
-        @Query("sw_lon") swLon: Double,
-        @Query("ne_lat") neLat: Double,
-        @Query("ne_lon") neLon: Double,
-        @Query("categories") categories: List<Int>?
-    ): Response<BinListResponse>
-
-    @POST("/bins/{binId}/report")
-    suspend fun reportBin(
-        @Header("Authorization") token: String,
-        @Path("binId") binId: Int,
-        @Body request: ReportRequest
-    ): Response<ReportResponse>
-
-    // 쓰레기통 등록 (POST)
-    @POST("/bins")
-    suspend fun registerBin(
-        @Header("Authorization") token: String,
-        @Body request: TrashcanCreateRequest
-    ): Response<TrashcanCreateResponse>
-
-    //  내 경험치 히스토리 조회
+    // 경험치 히스토리
     @GET("/user/exp")
     suspend fun getExpHistory(
         @Header("Authorization") token: String,
@@ -155,7 +99,7 @@ interface ApiService {
         @Query("limit") limit: Int = 20
     ): Response<ExpHistoryResponse>
 
-    // [추가] 내가 등록한 쓰레기통 조회
+    // 내가 등록한 쓰레기통 조회
     @GET("/user/me/bins")
     suspend fun getMyBins(
         @Header("Authorization") token: String,
@@ -164,57 +108,146 @@ interface ApiService {
         @Query("limit") limit: Int = 20
     ): Response<MyBinsResponse>
 
+    // (Mock용) 사용자 정보 조회
     @GET("/user/me")
-    suspend fun getMyInfo(
-        @Header("Authorization") token: String
-    ): Response<User>
+    suspend fun getUserInfo(): Response<UserInfoResponse>
 
-    @DELETE("/user/me")
-    suspend fun deleteAccount(
-        @Header("Authorization") token: String
-    ): Response<Unit>
 
-    @POST("/suggest")
-    suspend fun createSuggest(
+    // ----------------------------------------------------
+    // 3. 쓰레기통 (Trashcan) & 지도
+    // ----------------------------------------------------
+    // 지도 범위 내 쓰레기통 조회
+    @GET("/bins")
+    suspend fun getBins(
+        @Header("Authorization") token: String?,
+        @Query("sw_lat") swLat: Double,
+        @Query("sw_lon") swLon: Double,
+        @Query("ne_lat") neLat: Double,
+        @Query("ne_lon") neLon: Double,
+        @Query("categories") categories: List<Int>?
+    ): Response<BinListResponse>
+
+    // 쓰레기통 신고
+    @POST("/bins/{binId}/report")
+    suspend fun reportBin(
         @Header("Authorization") token: String,
-        @Body request: SuggestCreateRequest
-    ): Response<SuggestCreationResponse>
+        @Path("binId") binId: Int,
+        @Body request: ReportRequest
+    ): Response<ReportResponse>
 
-    // Presigned URL 발급 요청
-    @POST("/bins/presigned-url")
-    suspend fun getPresignedUrl(
+    // 쓰레기통 등록 (구형)
+    @POST("/bins")
+    suspend fun registerBin(
         @Header("Authorization") token: String,
-        @Body request: PresignedUrlRequest
-    ): Response<PresignedUrlResponse>
+        @Body request: TrashcanCreateRequest
+    ): Response<TrashcanCreateResponse>
 
-    //  S3에 진짜 파일 업로드
-    @PUT
-    suspend fun uploadImageToS3(
-        @Url url: String,
-        @Body image: RequestBody,
-        @Header("Content-Type") contentType: String // "image/jpeg" 등
-    ): Response<Unit>
-
+    // 쓰레기통 등록 (신형 - 3단계 업로드용)
     @POST("/bins/")
     suspend fun createBin(
         @Header("Authorization") token: String,
         @Body request: BinCreateRequest
     ): Response<BinCreateResponse>
 
+
+    // ----------------------------------------------------
+    // 4. 이미지 업로드 (S3)
+    // ----------------------------------------------------
+    // Presigned URL 발급
+    @POST("/bins/presigned-url")
+    suspend fun getPresignedUrl(
+        @Header("Authorization") token: String,
+        @Body request: PresignedUrlRequest
+    ): Response<PresignedUrlResponse>
+
+    // S3에 이미지 업로드 (PUT)
+    @PUT
+    suspend fun uploadImageToS3(
+        @Url url: String,
+        @Body image: RequestBody,
+        @Header("Content-Type") contentType: String
+    ): Response<Unit>
+
+
+    // ----------------------------------------------------
+    // 5. 건의 (Suggestion) & 주소 검색
+    // ----------------------------------------------------
+    // 건의 등록
+    @POST("/suggest")
+    suspend fun createSuggest(
+        @Header("Authorization") token: String,
+        @Body request: SuggestCreateRequest
+    ): Response<SuggestCreationResponse>
+
+    // 카카오 주소 검색 API (관리자용 관할 설정 등)
     @GET("v2/local/search/address.json")
     suspend fun searchAddress(
         @Header("Authorization") apiKey: String,
-        @Query("query") query: String, // 검색어
-        @Query("analyze_type") analyzeType: String = "similar" // 유사 검색
+        @Query("query") query: String,
+        @Query("analyze_type") analyzeType: String = "similar"
     ): Response<KakaoSearchResponse>
 
-    // 건의 리스트 조회 (관리자용)
+
+    // ----------------------------------------------------
+    // 6. 관리자 전용 (Admin)
+    // ----------------------------------------------------
+
+    // [건의 관리] 건의 리스트 조회
     @GET("/suggest/")
     suspend fun getAdminSuggestList(
         @Header("Authorization") token: String,
-        @Query("dong") dong: List<String>?, // 동 이름 (없으면 전체)
-        @Query("status") status: List<String>? = listOf("pending"), // 기본적으로 미처리 건만
+        @Query("dong") dong: List<String>?,
+        @Query("status") status: List<String>? = listOf("pending"),
         @Query("offset") offset: Int,
         @Query("limit") limit: Int
     ): Response<SuggestListResponse>
+
+    // [쓰레기통 관리] 승인 대기 목록 조회
+    @GET("/bins/admin/pending")
+    suspend fun getPendingBins(
+        @Header("Authorization") token: String,
+        @Query("dong") dong: String?
+    ): Response<List<BinDetail>>
+
+    // [쓰레기통 관리] 전체 목록 조회 (정렬, 필터)
+    @GET("/bins/admin/list")
+    suspend fun getAdminBinList(
+        @Header("Authorization") token: String,
+        @Query("dong") dong: String?,
+        @Query("sort_by") sortBy: String,
+        @Query("page") page: Int,
+        @Query("limit") limit: Int = 10
+    ): Response<AdminBinListResponse>
+
+    // [쓰레기통 관리] 삭제
+    @DELETE("/bins/{binId}")
+    suspend fun deleteBin(
+        @Header("Authorization") token: String,
+        @Path("binId") binId: Int
+    ): Response<Unit>
+
+    // [유저 관리] 유저 리스트 조회
+    @GET("/user/")
+    suspend fun getAdminUserList(
+        @Header("Authorization") token: String,
+        @Query("username") search: String?,
+        @Query("status") status: String?,
+        @Query("offset") offset: Int,
+        @Query("limit") limit: Int
+    ): Response<AdminUserListResponse>
+
+    // [유저 관리] 상태/권한 수정
+    @PATCH("/user/user/{userId}")
+    suspend fun updateUserStatus(
+        @Header("Authorization") token: String,
+        @Path("userId") userId: Int,
+        @Body body: UserAdminUpdateRequest
+    ): Response<AdminUserItem>
+
+    // [유저 관리] 상세 정보 조회
+    @GET("/user/{userId}/detail")
+    suspend fun getAdminUserDetail(
+        @Header("Authorization") token: String,
+        @Path("userId") userId: Int
+    ): Response<AdminUserItem>
 }

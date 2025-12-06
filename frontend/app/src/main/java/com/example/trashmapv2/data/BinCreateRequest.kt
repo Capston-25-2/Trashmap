@@ -9,5 +9,6 @@ data class BinCreateRequest(
     @SerializedName("body") val description: String?,
     @SerializedName("is_congested") val isCongested: Boolean = false,
     @SerializedName("is_verified") val isVerified: Boolean = false,
-    @SerializedName("s3_file_key") val s3FileKey: String
+    @SerializedName("s3_file_key") val s3FileKey: String,
+    @SerializedName("dong") val dong: String
 )

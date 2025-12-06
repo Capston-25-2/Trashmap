@@ -93,7 +93,8 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2023.08.00")) // BOM
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3") // Material 3 (Scaffold, NavigationBar 등)
-    implementation("androidx.compose.ui:ui-tooling-preview") // 미리보기용
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation(libs.androidx.foundation) // 미리보기용
     debugImplementation("androidx.compose.ui:ui-tooling")
     // --- ⬆️ Jetpack Compose 핵심 의존성 추가 ⬆️ ---
 

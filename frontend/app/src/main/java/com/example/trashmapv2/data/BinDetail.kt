@@ -35,9 +35,6 @@ data class BinDetail(
     val createdAt: String?
 )
 
-/**
- * 'geom' JSON 객체를 담는 중첩 데이터 클래스
- */
 
 data class BinGeometry(
     @SerializedName("lat")
@@ -47,9 +44,6 @@ data class BinGeometry(
     val longitude: Double
 )
 
-/**
- * 'author' JSON 객체를 담는 중첩 데이터 클래스
- */
 
 data class BinAuthor(
     @SerializedName("user_id")
@@ -57,19 +51,4 @@ data class BinAuthor(
 
     @SerializedName("username")
     val username: String
-)
-
-// PATCH /bins/{binId} (혼잡도) 요청 시 보낼 Body ---
-data class UpdateCongestionRequest(
-    @SerializedName("is_congested")
-    val isCongested: Boolean
-)
-
-// POST /bins/{binId}/report (신고) 요청 시 보낼 Body ---
-data class ReportBinRequest(
-    @SerializedName("user_id")
-    val userId: Int, // (이건 나중에 로그인 정보에서 가져와야 함)
-
-    @SerializedName("report_type")
-    val reportType: Int
 )

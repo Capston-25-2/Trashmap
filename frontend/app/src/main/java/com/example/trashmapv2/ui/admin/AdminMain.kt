@@ -53,6 +53,12 @@ fun AdminMain() {
         composable(AdminRoutes.TRASH) { TrashManagementScreen(navController) }
         composable(AdminRoutes.SUGGEST) { SuggestionListScreen(navController) }
         composable(AdminRoutes.ISSUE) { IssueListScreen(navController) }
+        composable("user_detail/{userId}") { backStackEntry ->
+            val userId = backStackEntry.arguments?.getString("userId")?.toIntOrNull()
+            if (userId != null) {
+                UserDetailScreen(navController, userId)
+            }
+        }
     }
 }
 
