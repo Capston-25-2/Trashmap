@@ -536,7 +536,7 @@ async def get_bin_list(
             status = t.status,
             dong = t.dong or ""
         ))
-    return schemas.BinListResponse(
+    return schemas.BinListResponseAdmin(
         total_count=total_count,
         data=data_list
     )

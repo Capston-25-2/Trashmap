@@ -209,7 +209,7 @@ class BinListAdmin(BaseModel):
     status: str
     dong: str
 
-class BinListResponse(BaseModel):
+class BinListResponseAdmin(BaseModel):
     total_count: int
     data: List[BinListAdmin]
 
