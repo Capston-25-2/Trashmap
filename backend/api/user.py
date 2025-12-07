@@ -8,7 +8,8 @@ from typing import List, Union
 from db.database import get_db
 from model import models
 from schema import schemas
-from api.auth import get_current_user
+from api.auth import get_current_user, check_admin
+from model.models import UserRole
 
 router = APIRouter(
     prefix="/user",
@@ -251,4 +252,138 @@ async def get_leaderboard(
     return schemas.LeaderboardResponse(
         total_users = total_users,
         rankings = ranking_data
+    )
+
+# GET /user API (관리자용)
+@router.get("/", response_model=schemas.UserListResponse)
+async def get_user_list(
+    username: str = Query(None, description="유저 닉네임 검색"),
+    role: str = Query(None, description="권한 필터(admin, user)"),
+    status: str = Query(None, description="상태 필터 (active, banned)"),
+    offset: int = 0,
+    limit: int = 20,
+    current_user: models.User = Depends(check_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    query = (
+        select(models.User)
+        .order_by(desc(models.User.created_at))
+    )
+
+    # 검색 필터링
+    if username:
+        query = query.where(models.User.username.like(f"%{username}%"))
+    
+    if role:
+        query = query.where(models.User.role == role)
+
+    if status:
+        query = query.where(models.User.status == status)
+    
+    count_query = (
+        select(func.count())
+        .select_from(query.subquery())
+    )
+
+    query = query.offset(offset).limit(limit)
+
+    result = await db.execute(query)
+    users = result.scalars().all()
+
+    count_result = await db.execute(count_query)
+    total_count = count_result.scalar()
+
+    return schemas.UserListResponse(
+        total_count = total_count,
+        data = users
+    )
+
+# PATCH /user/{userId} API (관리자용)
+@router.patch("/user/{userId}", response_model=schemas.User)
+async def update_user_admin(
+    userId: int,
+    update_data: schemas.UserAdminUpdate,
+    current_user: models.User = Depends(check_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    관리자용 유저 정보 변환
+    role: (admin, user) 일반 유저와 관리자를 변경할 수 있음
+    status: (active, banned) 
+    """
+
+    user = await db.get(models.User, userId)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="해당 유저를 찾을 수 없습니다."
+        )
+    
+    if update_data.role:
+        try:
+            user.role = UserRole[update_data.role]
+        except KeyError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="유효하지 않은 role입니다."
+            )
+        
+    if update_data.status:
+        allowed_status = ["active", "banned"]
+
+        if update_data.status not in allowed_status:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="status는 'active' 또는 'banned'여야 합니다."
+            )
+        
+        user.status = update_data.status
+        
+    await db.commit()
+    await db.refresh(user)
+
+    return user
+
+# GET /user/{userId}/detail API
+@router.get("/{userId}/detail", response_model=schemas.UserAdminDetail)
+async def get_user_detail(
+    userId: int,
+    current_user: models.User = Depends(check_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    특정 유저의 상세 정보와 활동 내역 조회
+    관리자만 이 기능을 사용할 수 있습니다.
+    """
+
+    query = (
+        select(models.User)
+        .options(
+            selectinload(models.User.trashcans),
+            selectinload(models.User.reports).options(
+                selectinload(models.Report.trashcan),
+                selectinload(models.Report.issue),
+                selectinload(models.Report.report_type)
+            )
+        )
+        .where(models.User.user_id == userId)
+    )
+
+    result = await db.execute(query)
+    user = result.scalar()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="해당 유저를 찾을 수 없습니다."
+        )
+    
+    return schemas.UserAdminDetail(
+        user = user,
+        status = user.status,
+        role = user.role,
+        created_at= user.created_at,
+
+        trashcans = user.trashcans,
+        reports = user.reports
     )

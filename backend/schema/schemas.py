@@ -186,3 +186,38 @@ class IssueListResponse(BaseModel):
 
 class IssueStatusUpdate(BaseModel):
     status: str
+
+class UserListResponse(BaseModel):
+    total_count: int
+    data: List[User]
+
+class UserAdminUpdate(BaseModel):
+    role: Optional[str] = Field(None, description="변경할 권한 (user, admin)")
+    status: Optional[str] = Field(None, description="변경할 유저 상태 (active, banned)")
+
+class BinListAdmin(BaseModel):
+    trashcan_id: int
+    body: Optional[str]
+    author: BinAuthor # { "user_id": 1, "username": "홍길동" }
+    created_at: datetime
+    categories: List[int] = Field(..., example=[1, 2])
+    lat: float = Field(..., example=37.5547)
+    lon: float = Field(..., example=126.9706)
+    img_url: Optional[str]
+    is_congested: bool
+    is_verified: bool
+    status: str
+    dong: str
+
+class BinListResponse(BaseModel):
+    total_count: int
+    data: List[BinListAdmin]
+
+class UserAdminDetail(BaseModel):
+    user: User
+    status: int
+    role: str
+    created_at: datetime
+
+    trashcans: List[MyBin]
+    reports: List[MyReport]

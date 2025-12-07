@@ -10,7 +10,7 @@ from typing import List, Optional
 from db.database import get_db
 from model import models
 from schema import schemas
-from api.auth import get_current_user, check_admin
+from api.auth import get_current_user, check_admin, check_active_user
 
 router = APIRouter(
     prefix="/suggest",
@@ -21,7 +21,7 @@ router = APIRouter(
 @router.post("/", response_model=schemas.SuggestCreationResponse, status_code=status.HTTP_201_CREATED)
 async def create_suggest(
     suggest_data: schemas.SuggestCreate,
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(check_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     # 위도, 경도를 PostGIS의 POINT 형태로 변환
