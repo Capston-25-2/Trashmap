@@ -34,6 +34,7 @@ class User(Base):
     level = Column(INT, nullable=False, default=1)
     created_at = Column(TIMESTAMP, server_default=func.now())
     role = Column(Enum(UserRole, name="user_role"), nullable=False, server_default='user')
+    status = Column(Enum(VARCHAR(20), nullable=False, default="active"))
 
     # 양방향 관계 설정
     trashcans = relationship("Trashcan", back_populates="user")
@@ -57,6 +58,7 @@ class Trashcan(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
     # 'pending_validation', 'approved', 'rejected'
     status = Column(VARCHAR(20), nullable=False, default='pending_validation')
+    dong = Column(VARCHAR(20), nullable=True)
     
     # 양방향 관계 설정
     user = relationship("User", back_populates="trashcans")
