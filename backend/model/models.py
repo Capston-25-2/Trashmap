@@ -138,6 +138,18 @@ class Issue(Base):
     def report_count(self):
         return len(self.reports) if self.reports else 0
     
+    @hybrid_property
+    def agree_count(self):
+        if not self.verifications:
+            return 0
+        return len([v for v in self.verifications if v.is_valid])
+    
+    @hybrid_property
+    def disagree_count(self):
+        if not self.verifications:
+            return 0
+        return len([v for v in self.verifications if not v.is_valid])
+    
     def __repr__(self):
         return f"<Issue(issue_id={self.issue_id}, status='{self.status}')>"
 
@@ -187,3 +199,6 @@ class IssueVerification(Base):
 
     user = relationship("User", back_populates="verifications")
     issue = relationship("Issue", back_populates="verifications")
+
+    def __repr__(self):
+        return f"<IssueVerification(verification_id={self.verification_id}, user={self.user_id}, issue={self.issue_id}, valid={self.is_valid})"

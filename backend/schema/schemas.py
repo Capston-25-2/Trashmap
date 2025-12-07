@@ -221,3 +221,18 @@ class UserAdminDetail(BaseModel):
 
     trashcans: List[MyBin]
     reports: List[MyReport]
+
+class Mission:
+    issue_id: int
+    issue_type: str
+    trashcan_id: int
+    latitude: float
+    longitude: float
+    created_at: datetime
+    agree_count: int
+    disagree_count: int
+
+
+class MissionListResponse(BaseModel):
+    count: int
+    data: List[Mission]
