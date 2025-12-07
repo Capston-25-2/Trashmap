@@ -34,7 +34,7 @@ class User(Base):
     level = Column(INT, nullable=False, default=1)
     created_at = Column(TIMESTAMP, server_default=func.now())
     role = Column(Enum(UserRole, name="user_role"), nullable=False, server_default='user')
-    status = Column(VARCHAR(20), nullable=False, default="active")
+    status = Column(VARCHAR(20), nullable=True, default="active")
 
     # 양방향 관계 설정
     trashcans = relationship("Trashcan", back_populates="user")
