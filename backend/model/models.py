@@ -41,6 +41,7 @@ class User(Base):
     reports = relationship("Report", back_populates="user")
     exp_history = relationship("ExpHistory", back_populates="user")
     suggest = relationship("Suggest", back_populates="user")
+    verifications = relationship("IssueVerification", back_populates="user")
 
     def __repr__(self):
         return f"<User(user_id={self.user_id}, username='{self.username}')>"
@@ -131,6 +132,7 @@ class Issue(Base):
     
     trashcan = relationship("Trashcan", back_populates="issues")
     reports = relationship("Report", back_populates="issue")
+    verifications = relationship("IssueVerification", back_populates="issue")
 
     @hybrid_property
     def report_count(self):
@@ -174,3 +176,14 @@ class Suggest(Base):
     
     def __repr__(self):
         return f"<Suggest(suggest_id={self.suggest_id}, dong='{self.dong}', status='{self.status}')>"
+    
+class IssueVerification(Base):
+    __tablename__ = 'issue_verification'
+    verification_id = Column(BIGINT, primary_key=True, autoincrement=True)
+    user_id = Column(BIGINT, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
+    issue_id = Column(BIGINT, ForeignKey("issue.issue_id", ondelete="CASCADE"), nullable=False)
+    is_valid = Column(BOOLEAN, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    user = relationship("User", back_populates="verifications")
+    issue = relationship("Issue", back_populates="verifications")
