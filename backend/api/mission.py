@@ -11,10 +11,11 @@ from shapely.geometry import Point
 from model import models
 from schema import schemas
 from db.database import get_db
+from api.auth import check_active_user, check_admin
 
 router = APIRouter(
-    prefix="/mission",
-    tags=["Mission"]
+    prefix="/missions",
+    tags=["Missions"]
 )
 
 # GET /missions API
@@ -62,3 +63,41 @@ async def get_nearby_missions(
         count = len(mission_list),
         data = mission_list
     )
+
+
+# POST /missions/{issueId}/verify
+@router.post("/{issueId}/verify")
+async def verify_issue(
+    issueId: int,
+    data: schemas.VerificationCreate,
+    current_user: models.User = Depends(check_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # 중복 검증 방지
+    query = (
+        select(models.IssueVerification)
+        .where(
+            models.IssueVerification.issue_id == issueId,
+            models.IssueVerification.user_id == current_user.user_id
+        )
+    )
+
+    result = await db.execute(query)
+    existing = result.scalar()
+
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="이미 수행한 미션입니다."
+        )
+    
+    verification = models.IssueVerification(
+        user_id = current_user.user_id,
+        issue_id = issueId,
+        is_valid = data.is_valid
+    )
+
+    db.add(verification)
+    await db.commit()
+
+    return {"message": "미션이 완료되었습니다. 추후 확인하여 포인트 지급 예정"}

@@ -236,3 +236,6 @@ class Mission:
 class MissionListResponse(BaseModel):
     count: int
     data: List[Mission]
+
+class VerificationCreate(BaseModel):
+    is_valid: bool
