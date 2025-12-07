@@ -9,6 +9,7 @@ from db.database import get_db
 from model import models
 from schema import schemas
 from api.auth import check_admin
+from utils import give_exp_async
 
 router = APIRouter(
     prefix="/issue",
@@ -33,7 +34,8 @@ async def get_issue(
         select(models.Issue)
         .options(
             selectinload(models.Issue.trashcan),
-            selectinload(models.Issue.reports)
+            selectinload(models.Issue.reports),
+            selectinload(models.Issue.verifications)
         )
         .order_by(desc(models.Issue.created_at))
     )
@@ -73,8 +75,10 @@ async def update_issue_status(
     query = (
         select(models.Issue)
         .options(
-            selectinload(models.Issue.trashcan),
-            selectinload(models.Issue.reports)
+            selectinload(models.Issue.trashcan)
+                .selectinload(models.Trashcan.categories),
+            selectinload(models.Issue.reports),
+            selectinload(models.Issue.verifications)
         )
         .where(models.Issue.issue_id == issueId)
     )
@@ -92,6 +96,38 @@ async def update_issue_status(
 
     if update_data.status == "resolved":
         issue.resolved_at = func.now()
+
+        # 미션 성공 시 경험치 보상(50exp) 지급
+        if update_data.answer is not None:
+            answer = (
+                select(models.IssueVerification)
+                .where(
+                    models.IssueVerification.issue_id == issueId,
+                    models.IssueVerification.is_valid == update_data.answer
+                )
+            )
+
+        answer_result = await db.execute(answer)
+        winners = answer_result.scalars().all()
+
+        for v in winners:
+            await give_exp_async(
+                user_id = v.user_id,
+                exp = 50,
+                reason = f"미션 성공 보상 (issue={issueId})",
+                db = db
+            )
+
+        # 최초 신고자에게도 경험치 보상(100xp) 지급
+        if update_data.answer is True:
+            for r in issue.reports:
+                await give_exp_async(
+                    user_id = r.user_id,
+                    exp = 100,
+                    reason = f"신고 승인 보상 (issue={issueId})",
+                    db = db
+                )
+
     else:
         issue.resolved_at = None
     await db.commit()

@@ -179,6 +179,8 @@ class IssueItem(CustomBaseModel):
     resolved_at: Optional[datetime]
     trashcan: BinMapPin
     report_count: int
+    agree_count: int = 0
+    disagree_count: int = 0
 
 class IssueListResponse(BaseModel):
     total_count: int
@@ -186,6 +188,7 @@ class IssueListResponse(BaseModel):
 
 class IssueStatusUpdate(BaseModel):
     status: str
+    answer: Optional[bool] = None
 
 class UserListResponse(BaseModel):
     total_count: int
