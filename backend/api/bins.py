@@ -140,7 +140,7 @@ async def get_trashcan_in_bounds(
 
 
 # GET /bins/admin API
-@router.get("/admin", response_model=schemas.BinListResponse)
+@router.get("/admin", response_model=schemas.BinListResponseAdmin)
 async def get_bin_list(
     dong: Optional[list[str]] = Query(None, description="동 필터"),
     author: Optional[list[str]] = Query(None, description="유저 닉네임 필터"),
