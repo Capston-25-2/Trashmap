@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Any
 
 # 1. 공통 설정을 가진 Base 모델을 만듭니다.
 class CustomBaseModel(BaseModel):
@@ -74,6 +74,18 @@ class BinMapPin(CustomBaseModel):
     categories: List[str]
     is_congested: bool
     is_verified: bool
+
+    model_config = ConfigDict(from_attributes=True)
+    @field_validator('categories', mode='before')
+    @classmethod
+    def parse_categories(cls, v: Any):
+        if not v:
+            return []
+        
+        if isinstance(v, list) and len(v) > 0 and hasattr(v[0], 'category_name'):
+            return [c.category_name for c in v]
+        
+        return v
 
 # 2. BinInList를 상속받아 중복 필드(trashcan_id, geom, categories)를 제거합니다.
 class BinDetail(BinMapPin):
