@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Path, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, or_
 from typing import Optional, List
 
 from db.database import get_db
@@ -21,6 +21,7 @@ router = APIRouter(
 async def get_issue(
     issue_type: Optional[List[str]] = Query(None, description="이슈 타입 필터"),
     status: Optional[List[str]] = Query(None, description="이슈 상태 필터"),
+    dong: Optional[List[str]] = Query(None, description="동 필터"),
     offset: int = 0,
     limit: int = 20,
     current_user: models.User = Depends(check_admin),
@@ -32,6 +33,7 @@ async def get_issue(
 
     query = (
         select(models.Issue)
+        .join(models.Trashcan)
         .options(
             selectinload(models.Issue.trashcan),
             selectinload(models.Issue.reports),
@@ -45,6 +47,10 @@ async def get_issue(
 
     if status:
         query = query.where(models.Issue.status.in_(status))
+    
+    if dong:
+        conditions = [models.Trashcan.dong.like(f"%{d}%") for d in dong]
+        query = query.where(or_(*conditions))
     
     count_query = (
         select(func.count())
