@@ -225,7 +225,7 @@ class UserAdminDetail(BaseModel):
     trashcans: List[MyBin]
     reports: List[MyReport]
 
-class Mission:
+class Mission(BaseModel):
     issue_id: int
     issue_type: str
     trashcan_id: int
