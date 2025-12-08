@@ -218,7 +218,7 @@ class BinListResponseAdmin(BaseModel):
 
 class UserAdminDetail(BaseModel):
     user: User
-    status: int
+    status: str
     role: str
     created_at: datetime
 
