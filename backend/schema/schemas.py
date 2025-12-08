@@ -172,8 +172,8 @@ class SuggestItem(CustomBaseModel):
     dong: str
     status: str
     created_at: datetime
-    lat: float 
-    lon: float
+    latitude: float 
+    longitude: float
     user_id: int
 
 class SuggestListResponse(CustomBaseModel):
