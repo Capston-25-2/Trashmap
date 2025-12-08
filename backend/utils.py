@@ -20,7 +20,7 @@ def give_exp_sync(
     db: Session
 ):
     # 유저 조회
-    user = await db.get(models.User, user_id)
+    user = db.get(models.User, user_id)
     if not user:
         return
     
