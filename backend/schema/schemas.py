@@ -79,7 +79,7 @@ class BinMapPin(CustomBaseModel):
     is_verified: bool
     body: Optional[str] = None  
     dong: Optional[str] = None
-    img_url: Optional[str] = "https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_92x30dp.png"
+    img_url: Optional[str] = None
     
     model_config = ConfigDict(from_attributes=True)
     @field_validator('categories', mode='before')
