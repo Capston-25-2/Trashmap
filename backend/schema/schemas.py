@@ -77,6 +77,8 @@ class BinMapPin(CustomBaseModel):
     categories: List[str]
     is_congested: bool
     is_verified: bool
+    body: Optional[str] = None  
+    dong: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
     @field_validator('categories', mode='before')
