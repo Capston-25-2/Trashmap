@@ -132,8 +132,7 @@ async def get_trashcan_in_bounds(
                 longitude = trashcan.longitude,
                 categories = [cat.category_name for cat in trashcan.categories],
                 is_congested = trashcan.is_congested,
-                is_verified = trashcan.is_verified,
-                img_url = trashcan.img_url
+                is_verified = trashcan.is_verified
             )
         )
     
