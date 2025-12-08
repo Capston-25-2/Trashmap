@@ -214,8 +214,8 @@ async def get_user_user_id(
 
     return user
 
-# GET /leaderboard API
-@router.get("/", response_model=schemas.LeaderboardResponse)
+# GET /user/leaderboard API
+@router.get("/leaderboard", response_model=schemas.LeaderboardResponse)
 async def get_leaderboard(
     offset: int = 0,
     limit: int = 20,
