@@ -144,6 +144,7 @@ async def get_trashcan_in_bounds(
 async def get_bin_list(
     dong: Optional[list[str]] = Query(None, description="동 필터"),
     author: Optional[list[str]] = Query(None, description="유저 닉네임 필터"),
+    status: Optional[str] = Query(None, description="쓰레기통 검증 여부"),
     offset: int = 0,
     limit: int = 20,
     current_user: models.User = Depends(check_admin),
@@ -171,6 +172,9 @@ async def get_bin_list(
     
     if author:
         query = query.where(models.User.username.in_(author))
+
+    if status:
+        query = query.where(models.Trashcan.status == status)
 
     count_query = (
         select(func.count())
