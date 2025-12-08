@@ -35,6 +35,7 @@ async def get_issue(
         select(models.Issue)
         .join(models.Trashcan)
         .options(
+            selectinload(models.Issue.trashcan).selectinload(models.Trashcan.categories),
             selectinload(models.Issue.trashcan),
             selectinload(models.Issue.reports),
             selectinload(models.Issue.verifications)
