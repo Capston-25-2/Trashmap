@@ -9,6 +9,7 @@ class CustomBaseModel(BaseModel):
 
 # --- 유저(User) 관련 스키마 ---
 class User(CustomBaseModel):
+    user_id: int
     username: str
     level: int
     exp: int
