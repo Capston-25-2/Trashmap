@@ -13,6 +13,8 @@ class User(CustomBaseModel):
     username: str
     level: int
     exp: int
+    role: str             
+    status: str
 
 class UserUpdate(BaseModel):
     username: str
