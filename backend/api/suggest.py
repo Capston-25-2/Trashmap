@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload # N + 1 문제 방지
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, update
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
 from typing import List, Optional
@@ -90,6 +90,33 @@ async def get_suggest(
         total_count = total_count,
         data = suggestions
     )
+
+# PATCH /suggest/bulk-resolve API
+@router.patch("/bulk-resolve")
+async def update_all_suggest_in_dong(
+    dong: str = Query(..., description="일괄 해결할 동 이름"),
+    current_user: models.User = Depends(check_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    query = (
+        update(models.Suggest)
+        .where(
+            models.Suggest.dong == dong,
+            models.Suggest.status == 'pending'
+        )
+        .values(status = 'resolved')
+    )
+
+    result = await db.execute(query)
+    await db.commit()
+
+    updated_count = result.rowcount
+
+    return {
+        "message": "일괄 처리가 완료되었습니다.",
+        "dong": dong,
+        "updated_count": updated_count
+    }
 
 # PATCH /suggest/{suggestId} API
 @router.patch("/{suggestId}", response_model=schemas.SuggestItem)
