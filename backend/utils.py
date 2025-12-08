@@ -39,7 +39,7 @@ def give_exp_sync(
     db.add(history)
 
     db.commit()
-    print(f"[Sync] User {user_id} exp added: {exp}, Level: {user.level}")
+    print(f"[Sync] User {user_id} exp added: {exp}, Level: {new_level}")
 
 # API 로직: 비동기 버전 -> 쓰레기통 검증 이외 경험치 지급하는 로직
 async def give_exp_async(
@@ -68,4 +68,4 @@ async def give_exp_async(
     db.add(history)
 
     await db.commit()
-    print(f"[Async] User {user_id} exp added: {exp}, Level: {user.level}")
+    print(f"[Async] User {user_id} exp added: {exp}, Level: {new_level}")
