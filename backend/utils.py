@@ -20,7 +20,7 @@ def give_exp_sync(
     db: Session
 ):
     # 유저 조회
-    user = db.get(models.User, user_id)
+    user = await db.get(models.User, user_id)
     if not user:
         return
     
@@ -49,7 +49,7 @@ async def give_exp_async(
     db: AsyncSession
 ):
     # 유저 조회
-    user = db.get(models.User, user_id)
+    user = await db.get(models.User, user_id)
     if not user:
         return
     
