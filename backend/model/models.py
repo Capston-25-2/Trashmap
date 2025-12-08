@@ -74,6 +74,10 @@ class Trashcan(Base):
     @hybrid_property
     def longitude(self):
         return to_shape(self.geom).x if self.geom else None
+    
+    @property
+    def author(self):
+        return self.user
 
     def __repr__(self):
         return f"<Trashcan(trashcan_id={self.trashcan_id})>"
