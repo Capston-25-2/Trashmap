@@ -198,22 +198,6 @@ async def get_my_exp(
         data = history_list
     )
 
-# GET /user/{userId} API // 쓰레기통 조회 화면이나 리더보드 페이지에서 사용(로그인 불필요)
-@router.get("/{userId}", response_model=schemas.User)
-async def get_user_user_id(
-    userId: int,
-    db: AsyncSession = Depends(get_db)
-):
-    user = await db.get(models.User, userId)
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="해당 사용자를 찾을 수 없습니다."
-        )
-
-    return user
-
 # GET /user/leaderboard API
 @router.get("/leaderboard", response_model=schemas.LeaderboardResponse)
 async def get_leaderboard(
@@ -253,6 +237,22 @@ async def get_leaderboard(
         total_users = total_users,
         rankings = ranking_data
     )
+
+# GET /user/{userId} API // 쓰레기통 조회 화면이나 리더보드 페이지에서 사용(로그인 불필요)
+@router.get("/{userId}", response_model=schemas.User)
+async def get_user_user_id(
+    userId: int,
+    db: AsyncSession = Depends(get_db)
+):
+    user = await db.get(models.User, userId)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="해당 사용자를 찾을 수 없습니다."
+        )
+
+    return user
 
 # GET /user API (관리자용)
 @router.get("/", response_model=schemas.UserListResponse)
