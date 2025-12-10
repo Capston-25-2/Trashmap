@@ -124,7 +124,7 @@ fun MyBinsScreen(onBackClick: () -> Unit) {
             Spacer(modifier = Modifier.width(8.dp))
 
             Text(
-                text = "내 쓰레기통 ($totalCount)",
+                text = "내 쓰레기통",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onPrimary

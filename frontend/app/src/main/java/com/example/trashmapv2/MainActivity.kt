@@ -59,6 +59,7 @@ import com.example.trashmapv2.auth.TokenManager
 import com.example.trashmapv2.data.BinDetail
 import com.example.trashmapv2.data.BinGeometry
 import com.example.trashmapv2.ui.main.*
+import com.example.trashmapv2.utils.MissionPrefs
 import com.example.trashmapv2.ui.theme.TrashMapAppV2Theme
 import com.example.trashmapv2.data.MissionInfo
 import com.example.trashmapv2.network.KakaoRetrofitClient
@@ -81,6 +82,8 @@ class MainActivity : AppCompatActivity() {
     // 내 위치 표시용 핀 및 콜백
     private var myPositionPin: Label? = null
     private lateinit var locationCallback: LocationCallback
+    // 미션 전용 레이어 변수
+    private var missionLayer: com.kakao.vectormap.label.LabelLayer? = null
 
     // [변경] 원본 데이터 저장용 (서버에서 받은 거 통째로 보관)
     private var allDownloadedBins: List<BinDetail> = emptyList()
@@ -147,7 +150,35 @@ class MainActivity : AppCompatActivity() {
                 // 미션 핀 클릭 감지 -> 바텀시트 열기
                 LaunchedEffect(selectedMissionInfo) {
                     if (selectedMissionInfo != null) {
-                        coroutineScope.launch { sheetState.show() }
+                        sheetState.show()
+                    }
+                }
+
+                // 2. [UI] 데이터가 있을 때 화면에 그리는 코드 (LaunchedEffect 밖으로 꺼내야 함!)
+                if (selectedMissionInfo != null) {
+                    ModalBottomSheet(
+                        onDismissRequest = { selectedMissionInfo = null },
+                        sheetState = sheetState,
+                        dragHandle = { BottomSheetDefaults.DragHandle() }
+                    ) {
+                        MissionDetailsSheet(
+                            missionInfo = selectedMissionInfo!!,
+
+                            // [핵심 연결 고리] 버튼 클릭 시 서버 요청
+                            onVerifyClick = { isYes ->
+                                // ID를 Int로 변환해서 서버 함수 호출
+                                verifyMissionToServer(selectedMissionInfo!!.id.toInt(), isYes)
+
+                                // 시트 닫기 및 초기화
+                                coroutineScope.launch { sheetState.hide() }
+                                    .invokeOnCompletion { selectedMissionInfo = null }
+                            },
+
+                            onDismiss = {
+                                coroutineScope.launch { sheetState.hide() }
+                                    .invokeOnCompletion { selectedMissionInfo = null }
+                            }
+                        )
                     }
                 }
 
@@ -167,6 +198,7 @@ class MainActivity : AppCompatActivity() {
                                 // 줌 레벨 체크 후 서버 요청
                                 if (cameraPosition.zoomLevel >= MIN_ZOOM_LEVEL_FOR_API) {
                                     fetchBinsFromServer(map)
+                                    fetchMissionsFromServer(map)
                                     Log.d("MainActivity", "지도 멈춤(일반): 쓰레기통 조회 요청")
                                 }
                             }
@@ -313,26 +345,6 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                // 미션 상세 바텀시트
-                if (selectedMissionInfo != null) {
-                    ModalBottomSheet(
-                        onDismissRequest = { selectedMissionInfo = null },
-                        sheetState = sheetState,
-                        dragHandle = { BottomSheetDefaults.DragHandle() }
-                    ) {
-                        MissionDetailsSheet(
-                            missionInfo = selectedMissionInfo!!,
-                            onVerifyClick = { isYes ->
-                                // TODO: 미션 검증 API 연결 필요
-                                Log.d("API_CALL", "미션(${selectedMissionInfo!!.id}) 검증: $isYes")
-                                coroutineScope.launch { sheetState.hide() }.invokeOnCompletion { selectedMissionInfo = null }
-                            },
-                            onDismiss = {
-                                coroutineScope.launch { sheetState.hide() }.invokeOnCompletion { selectedMissionInfo = null }
-                            }
-                        )
-                    }
-                }
 
                 // 쓰레기통 상세 바텀시트
                 if (selectedBinInfo != null) {
@@ -343,12 +355,7 @@ class MainActivity : AppCompatActivity() {
                     ) {
                         PinDetailsSheet(
                             binInfo = selectedBinInfo!!,
-                            onDismiss = {
-                                coroutineScope.launch { sheetState.hide() }.invokeOnCompletion { selectedBinInfo = null }
-                            },
                             onReportAction = { reportType ->
-                                Log.d("Report", "신고 요청: 타입 $reportType")
-                                // 신고 API 호출
                                 reportBinToServer(selectedBinInfo!!.id, reportType)
                                 coroutineScope.launch { sheetState.hide() }.invokeOnCompletion { selectedBinInfo = null }
                             }
@@ -394,6 +401,105 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
+    // 미션 목록 불러오기 API
+    private fun fetchMissionsFromServer(kakaoMap: KakaoMap) {
+        val currentZoom = kakaoMap.cameraPosition?.zoomLevel ?: 0
+        if (currentZoom < 15) {
+            missionLayer?.removeAll() // 줌 멀어지면 미션 핀 제거
+            return
+        }
+
+        lifecycleScope.launch {
+            val rawToken = TokenManager.getAuthToken(this@MainActivity)
+            val authHeader = if (rawToken != null) "Bearer $rawToken" else null
+
+            // 현재 지도 중심 좌표
+            val center = kakaoMap.cameraPosition?.position ?: return@launch
+
+            try {
+                // API 호출
+                val response = RetrofitClient.apiInstance.getMissions(
+                    token = authHeader,
+                    lat = center.latitude,
+                    lon = center.longitude,
+                    radius = 1000 // 1km 반경
+                )
+
+                if (response.isSuccessful) {
+                    val serverMissions = response.body()?.data ?: emptyList()
+
+                    val filteredMissions = serverMissions.filter { item ->
+                        val idStr = item.issueId.toString()
+                        !MissionPrefs.isCompleted(this@MainActivity, idStr)
+                    }
+
+                    val newMissionList = filteredMissions.map { item ->
+                        MissionInfo(
+                            id = item.issueId.toString(),
+                            title = "제보 확인: ${item.issueType}",
+                            description = "예 ${item.agreeCount} / 아니요 ${item.disagreeCount}",
+                            imageUrl = null,
+                            position = LatLng.from(item.latitude, item.longitude)
+                        )
+                    }
+
+                    // 현재 리스트 갱신 및 핀 그리기
+                    currentMissionList = newMissionList
+                    addMissionPinsToMap(kakaoMap, currentMissionList)
+                } else {
+                    Log.e("MissionAPI", "로드 실패: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                Log.e("MissionAPI", "에러", e)
+            }
+        }
+    }
+
+
+    //  미션 검증(수행) API 및 핀 삭제 로직
+    // 미션 검증(수행) API
+    private fun verifyMissionToServer(issueId: Int, isValid: Boolean) {
+        lifecycleScope.launch {
+            val token = TokenManager.getAuthToken(this@MainActivity)
+            if (token == null) {
+                Toast.makeText(this@MainActivity, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            try {
+                val request = com.example.trashmapv2.data.VerificationRequest(isValid = isValid)
+                val response = RetrofitClient.apiInstance.verifyMission(
+                    token = "Bearer $token",
+                    issueId = issueId,
+                    request = request
+                )
+
+                // 성공(200)하거나 이미 참여함(400)인 경우 -> 둘 다 안 보이게 처리
+                if (response.isSuccessful || response.code() == 400) {
+                    val message = if (response.isSuccessful) "참여 감사합니다!" else "이미 참여한 미션입니다."
+                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+
+                    // [핵심 수정 1] 폰 내부 저장소(Prefs)에 '이 미션 완료함' 기록
+                    MissionPrefs.setCompleted(this@MainActivity, issueId.toString())
+
+                    // [핵심 수정 2] 현재 보고 있는 화면 목록에서 즉시 제거
+                    currentMissionList = currentMissionList.filter { it.id != issueId.toString() }
+
+                    // [핵심 수정 3] 핀 다시 그리기
+                    if (kakaoMap != null) {
+                        addMissionPinsToMap(kakaoMap!!, currentMissionList)
+                    }
+                } else {
+                    Toast.makeText(this@MainActivity, "전송 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e("VerifyAPI", "Error", e)
+                Toast.makeText(this@MainActivity, "네트워크 오류", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     // 쓰레기통 목록 API 호출 및 핀 등록 함수
     private fun fetchBinsFromServer(kakaoMap: KakaoMap) {
         val currentZoom = kakaoMap.cameraPosition?.zoomLevel ?: 0
@@ -429,24 +535,19 @@ class MainActivity : AppCompatActivity() {
                     val serverBinList = response.body()?.data ?: emptyList()
 
                     allDownloadedBins = serverBinList.map { serverBin ->
+
                         BinDetail(
                             id = serverBin.id,
-
-                            // [수정] serverBin.geom.lat -> serverBin.lat 로 변경
                             geometry = BinGeometry(
                                 latitude = serverBin.lat,
                                 longitude = serverBin.lon
                             ),
-
-                            // [수정] 서버가 description을 안 주므로, 우리가 직접 만들어야 함
                             description = "쓰레기통 (${serverBin.categories?.joinToString() ?: "정보 없음"})",
 
-                            // [수정] 서버가 리스트 조회에선 img_url을 안 줌 -> null 처리
-                            imageUrl = null,
 
-                            // 카테고리 이름 -> ID 변환 로직은 유지
+                            imageUrl = serverBin.imgUrl,
+
                             categoryIds = convertCategoryNamesToIds(serverBin.categories),
-
                             isCongested = serverBin.isCongested,
                             isVerified = serverBin.isVerified,
                             author = null,
@@ -519,7 +620,7 @@ class MainActivity : AppCompatActivity() {
             Log.d("KakaoMap", "onMapReady successful")
             this@MainActivity.kakaoMap = kakaoMap
 
-            // [최적화] 1. 여기서 비트맵을 딱 한 번만 디코딩해서 스타일 생성
+
             val labelManager = kakaoMap.labelManager
 
             /// 1. 쓰레기통 레이어 (바닥)
@@ -530,8 +631,13 @@ class MainActivity : AppCompatActivity() {
                         .setCompetitionType(CompetitionType.None)
                         .setOrderingType(OrderingType.Rank)
                 )
+            // 2. 미션 위치 레이어 (중간)
+            missionLayer = labelManager?.getLayer("mission_layer")
+                ?: labelManager?.addLayer(
+                    com.kakao.vectormap.label.LabelLayerOptions.from("mission_layer").setZOrder(1500)
+                )
 
-            // 2. 유저 위치 레이어 (제일 위)
+            // 3. 유저 위치 레이어 (제일 위)
             userLayer = labelManager?.getLayer("user_layer")
                 ?: labelManager?.addLayer(
                     com.kakao.vectormap.label.LabelLayerOptions.from("user_layer")
@@ -586,21 +692,17 @@ class MainActivity : AppCompatActivity() {
 
             // 초기 쓰레기통 데이터 로드
             fetchBinsFromServer(kakaoMap)
+            fetchMissionsFromServer(kakaoMap)
 
-            // TODO: 미션 목록 API 연동 필요 (현재 더미 데이터)
-            currentMissionList = listOf(
-                MissionInfo("mission_1", "진짜 쓰레기통인가요?", "일반, 재활용", "https://picsum.photos/seed/mission1/400/300", LatLng.from(37.5575, 126.9690))
-            )
-            addMissionPinsToMap(kakaoMap, currentMissionList)
 
             // 핀 클릭 리스너
             kakaoMap.setOnLabelClickListener { _, _, label ->
                 when (val tag = label.tag) {
-                    is Int -> {
+                    is Int -> { // Int 태그는 쓰레기통 ID
                         val foundBin = currentBinList.find { it.id == tag }
                         if (foundBin != null) selectedBinInfo = foundBin
                     }
-                    is String -> {
+                    is String -> { // String 태그는 미션 ID
                         if (isUserLoggedIn()) {
                             val foundMission = currentMissionList.find { it.id == tag }
                             if (foundMission != null) selectedMissionInfo = foundMission
@@ -618,8 +720,14 @@ class MainActivity : AppCompatActivity() {
     // 미션 핀 등록 함수
     private fun addMissionPinsToMap(kakaoMap: KakaoMap, missions: List<MissionInfo>) {
         val labelManager = kakaoMap.labelManager ?: return
-        val layer = labelManager.layer ?: return
+        val layer = missionLayer ?: return
+
+        layer.removeAll()
+
+        // [수정 핵심] 핀 스타일에도 줌 레벨 제한을 겁니다 (15레벨 이상에서만 보임)
         val style = LabelStyle.from(R.drawable.ic_mission_pin)
+            .setZoomLevel(MIN_ZOOM_LEVEL_FOR_API)
+
         val styles = LabelStyles.from(style)
         labelManager.addLabelStyles(styles)
 
@@ -630,6 +738,7 @@ class MainActivity : AppCompatActivity() {
             }
             layer.addLabel(options)
         }
+        Log.d("MissionMap", "미션 핀 ${missions.size}개 추가됨")
     }
 
     // 쓰레기통 핀 등록 함수 (줌 레벨별 스타일 적용)

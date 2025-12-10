@@ -29,7 +29,7 @@ data class BinDetail(
     val isVerified: Boolean,
 
     @SerializedName("author")
-    val author: BinAuthor?, // (등록자가 없으면 null일 수 있음)
+    val author: BinAuthor?,
 
     @SerializedName("created_at")
     val createdAt: String?

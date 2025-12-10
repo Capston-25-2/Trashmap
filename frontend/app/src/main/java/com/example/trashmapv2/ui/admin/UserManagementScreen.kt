@@ -1,16 +1,13 @@
 package com.example.trashmapv2.ui.admin
 
-import android.util.Log
 import android.widget.Toast
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,226 +19,352 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.trashmapv2.auth.TokenManager
-import com.example.trashmapv2.data.AdminUserItem
-import com.example.trashmapv2.data.UserAdminUpdateRequest
-import com.example.trashmapv2.network.RetrofitClient
+import com.example.trashmapv2.network.*
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+// ==========================================
+// [Screen 1] 유저 목록 화면 (UserManagementScreen)
+// AdminMain의 AdminRoutes.USER와 연결됨
+// ==========================================
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UserManagementScreen(navController: NavController) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // --- 변수들 ---
-    var userList by remember { mutableStateOf<List<AdminUserItem>>(emptyList()) }
-    var selectedStatus by remember { mutableStateOf<String?>(null) }
+    // 상태 변수
+    var userList by remember { mutableStateOf<List<AdminUser>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    // 검색어 상태
     var searchQuery by remember { mutableStateOf("") }
 
-    // 다중 선택 (밴 기능용)
-    var isSelectionMode by remember { mutableStateOf(false) }
-    val selectedIds = remember { mutableStateListOf<Int>() }
-    var showBanDialog by remember { mutableStateOf(false) }
-
-    // --- 데이터 불러오기 함수 ---
-    fun fetchUsers() {
+    // API 호출 함수
+    fun loadUsers() {
+        isLoading = true
         coroutineScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
             try {
+                // 검색어가 비어있으면 null로 처리
+                val usernameParam = if (searchQuery.isBlank()) null else searchQuery
+
                 val response = RetrofitClient.apiInstance.getAdminUserList(
                     token = "Bearer $token",
-                    search = if (searchQuery.isBlank()) null else searchQuery,
-                    status = selectedStatus,
+                    username = usernameParam,
                     offset = 0,
-                    limit = 50
+                    limit = 100
                 )
+
                 if (response.isSuccessful) {
                     userList = response.body()?.data ?: emptyList()
-                    isSelectionMode = false
-                    selectedIds.clear()
+                } else {
+                    Toast.makeText(context, "목록 로드 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Log.e("UserMan", "로드 에러", e)
+                Toast.makeText(context, "오류: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                isLoading = false
             }
         }
     }
 
-    // --- 일괄 정지(Ban) 함수 ---
-    fun banSelectedUsers() {
-        coroutineScope.launch {
-            val token = TokenManager.getAuthToken(context) ?: return@launch
-            var successCount = 0
-
-            selectedIds.forEach { id ->
-                try {
-                    val req = UserAdminUpdateRequest(status = "banned")
-                    val res = RetrofitClient.apiInstance.updateUserStatus("Bearer $token", id, req)
-                    if (res.isSuccessful) successCount++
-                } catch (e: Exception) {}
-            }
-
-            Toast.makeText(context, "$successCount 명 정지 완료", Toast.LENGTH_SHORT).show()
-            fetchUsers()
-            showBanDialog = false
-        }
+    // 화면 진입 시 초기 로드
+    LaunchedEffect(Unit) {
+        loadUsers()
     }
 
-    LaunchedEffect(selectedStatus) { fetchUsers() }
-
-    // --- 화면 구성 (UI) ---
-    SubScreenLayout(title = "사용자 관리", navController = navController) {
-        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-
-            // 1. 상단: 필터 칩 + 검색창
-            Column {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = selectedStatus == null,
-                        onClick = { selectedStatus = null },
-                        label = { Text("전체") },
-                        leadingIcon = if (selectedStatus == null) { { Icon(Icons.Default.Check, null) } } else null
-                    )
-                    FilterChip(
-                        selected = selectedStatus == "active",
-                        onClick = { selectedStatus = "active" },
-                        label = { Text("정상") },
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFFE8F5E9))
-                    )
-                    FilterChip(
-                        selected = selectedStatus == "banned",
-                        onClick = { selectedStatus = "banned" },
-                        label = { Text("정지") },
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFFFFEBEE))
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("닉네임 검색") },
-                    modifier = Modifier.fillMaxWidth(),
-                    trailingIcon = {
-                        IconButton(onClick = { fetchUsers() }) {
-                            Icon(Icons.Default.Search, null)
-                        }
-                    },
-                    singleLine = true
-                )
-            }
+    Scaffold(
+        // ★ [수정] 시스템 바(상단 카메라, 하단 홈키) 만큼 안쪽으로 패딩을 줍니다.
+        modifier = Modifier
+            .fillMaxSize()
+            .systemBarsPadding(),
+        topBar = {
+            TopAppBar(
+                title = { Text("유저 관리") },
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            // [검색창]
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                label = { Text("유저 닉네임 검색") },
+                trailingIcon = {
+                    IconButton(onClick = { loadUsers() }) {
+                        Icon(Icons.Default.Search, contentDescription = "검색")
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 2. 중앙: 유저 리스트
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                items(userList) { user ->
-                    UserCard(
-                        user = user,
-                        isSelectionMode = isSelectionMode,
-                        isSelected = selectedIds.contains(user.userId),
-                        onLongClick = {
-                            // 꾹 누르면 선택 모드 시작
-                            if (!isSelectionMode) {
-                                isSelectionMode = true
-                                selectedIds.add(user.userId)
-                            }
-                        },
-                        onClick = {
-                            if (isSelectionMode) {
-                                // 선택 모드일 땐 체크박스 토글
-                                if (selectedIds.contains(user.userId)) selectedIds.remove(user.userId)
-                                else selectedIds.add(user.userId)
-
-                                if (selectedIds.isEmpty()) isSelectionMode = false
-                            } else {
-                                // [정답 위치] 일반 클릭 시 상세 화면 이동
-                                navController.navigate("user_detail/${user.userId}")
-                            }
-                        }
-                    )
+            // [리스트]
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
                 }
-            }
+            } else {
+                Text(
+                    text = "총 ${userList.size}명",
+                    color = Color.Gray,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
 
-            // 3. 하단: 정지 버튼 (선택 모드일 때만 보임)
-            if (isSelectionMode) {
-                Button(
-                    onClick = { showBanDialog = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
-                    modifier = Modifier.fillMaxWidth()
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    Icon(Icons.Default.Block, null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("선택한 ${selectedIds.size}명 계정 정지")
+                    items(userList) { user ->
+                        UserItemCard(user) {
+                            // 클릭 시 AdminMain에 정의된 상세 화면 경로로 이동
+                            navController.navigate("user_detail/${user.userId}")
+                        }
+                    }
                 }
             }
-            // [수정] 여기에 있던 else { navigate... } 코드는 삭제했습니다!
-        }
-
-        // 정지 확인 다이얼로그
-        if (showBanDialog) {
-            AlertDialog(
-                onDismissRequest = { showBanDialog = false },
-                title = { Text("계정 정지") },
-                text = { Text("정말 선택한 ${selectedIds.size}명을 정지시키겠습니까?") },
-                confirmButton = {
-                    Button(
-                        onClick = { banSelectedUsers() },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
-                    ) { Text("정지") }
-                },
-                dismissButton = {
-                    Button(onClick = { showBanDialog = false }) { Text("취소") }
-                }
-            )
         }
     }
 }
 
-// UserCard 컴포저블은 기존과 동일하게 사용 (수정 불필요)
-@OptIn(ExperimentalFoundationApi::class)
+// 목록 아이템 카드 UI
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UserCard(
-    user: AdminUserItem,
-    isSelectionMode: Boolean,
-    isSelected: Boolean,
-    onLongClick: () -> Unit,
-    onClick: () -> Unit
-) {
+fun UserItemCard(user: AdminUser, onClick: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) Color(0xFFFFEBEE) else Color.White
-        ),
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(2.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            if (isSelectionMode) {
-                Checkbox(checked = isSelected, onCheckedChange = { onClick() })
+            Column {
+                Text(text = user.username, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "Lv.${user.level} (EXP: ${user.exp})",
+                    fontSize = 12.sp,
+                    color = Color.Gray
+                )
             }
 
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(user.username, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    if (user.status == "banned") {
-                        Text("[정지됨]", color = Color.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            // 우측 뱃지 (Role / Status)
+            Column(horizontalAlignment = Alignment.End) {
+
+                if (user.status == "banned") {
+                    Text("정지됨", color = Color.Gray, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                } else {
+                    Text("활동중", color = Color.Green, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+// ==========================================
+// [Screen 2] 유저 상세 및 관리 화면 (UserDetailScreen)
+// AdminMain의 "user_detail/{userId}" 와 연결됨
+// ==========================================
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun UserDetailScreen(navController: NavController, userId: Int) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    var userDetail by remember { mutableStateOf<AdminUserDetailResponse?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    // 데이터 새로고침 함수
+    fun refreshData() {
+        isLoading = true
+        coroutineScope.launch {
+            val token = TokenManager.getAuthToken(context) ?: return@launch
+            try {
+                val response = RetrofitClient.apiInstance.getAdminUserDetail("Bearer $token", userId)
+                if (response.isSuccessful) {
+                    userDetail = response.body()
+                } else {
+                    Toast.makeText(context, "상세 정보 로드 실패", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "네트워크 오류", Toast.LENGTH_SHORT).show()
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    LaunchedEffect(userId) {
+        refreshData()
+    }
+
+    // 관리자 액션 (Role/Status 변경)
+    fun updateUser(role: String? = null, status: String? = null) {
+        coroutineScope.launch {
+            val token = TokenManager.getAuthToken(context) ?: return@launch
+            try {
+                val request = UserAdminUpdateRequest(role = role, status = status)
+                val response = RetrofitClient.apiInstance.updateUserStatus(
+                    token = "Bearer $token",
+                    userId = userId,
+                    body = request
+                )
+
+                if (response.isSuccessful) {
+                    val msg = if (role != null) "권한 변경 완료" else "상태 변경 완료"
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    refreshData() // 데이터 갱신
+                } else {
+                    Toast.makeText(context, "변경 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "에러: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    Scaffold(
+        // ★ [수정] 상세 화면도 시스템 바 보호 적용
+        modifier = Modifier
+            .fillMaxSize()
+            .systemBarsPadding(),
+        topBar = {
+            TopAppBar(
+                title = { Text(userDetail?.user?.username ?: "유저 상세") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "뒤로가기")
                     }
                 }
-                Text("ID: ${user.userId} | Lv.${user.level}", color = Color.Gray, fontSize = 12.sp)
-            }
+            )
+        },
+        bottomBar = {
+            // [하단 관리 버튼]
+            if (userDetail != null) {
+                Column(Modifier.background(Color.White)) {
+                    Divider()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // 1. 밴/언밴 버튼
+                        val isBanned = userDetail!!.status == "banned"
+                        Button(
+                            onClick = { updateUser(status = if (isBanned) "active" else "banned") },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isBanned) Color.Green else Color.DarkGray
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(if (isBanned) "정지 해제" else "계정 정지")
+                        }
 
-            Column(horizontalAlignment = Alignment.End) {
-                Text("등록: ${user.trashcanCount}", fontSize = 12.sp)
-                Text("신고: ${user.reportCount}", fontSize = 12.sp, color = if (user.reportCount > 5) Color.Red else Color.Black)
+                        // 2. 관리자 승격/해제 버튼
+                        val isAdmin = userDetail!!.role == "admin"
+                        Button(
+                            onClick = { updateUser(role = if (isAdmin) "user" else "admin") },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isAdmin) Color.Blue else Color.Red
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(if (isAdmin) "관리자 해제" else "관리자 승격")
+                        }
+                    }
+                }
+            }
+        }
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            } else if (userDetail != null) {
+                val data = userDetail!!
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
+                ) {
+                    // [기본 정보 섹션]
+                    item {
+                        Text("기본 정보", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("가입일: ${data.createdAt.take(10)}")
+                        Text("Level: ${data.user.level} (EXP: ${data.user.exp})")
+                        Text("현재 상태: ${data.status} / ${data.role}")
+                        Spacer(modifier = Modifier.height(24.dp))
+                    }
+
+                    // [활동 내역 1: 등록한 쓰레기통]
+                    item {
+                        Text(
+                            "등록한 쓰레기통 (${data.trashcans.size})",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Divider(modifier = Modifier.padding(vertical = 4.dp))
+                    }
+                    if (data.trashcans.isEmpty()) {
+                        item { Text("등록 내역 없음", color = Color.Gray, fontSize = 14.sp) }
+                    } else {
+                        items(data.trashcans) { bin ->
+                            Row(modifier = Modifier.padding(vertical = 4.dp)) {
+                                Text(
+                                    "ID: ${bin.trashcanId}",
+                                    modifier = Modifier.width(60.dp),
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text("상태: ${bin.status}")
+                            }
+                        }
+                    }
+
+                    item { Spacer(modifier = Modifier.height(24.dp)) }
+
+                    // [활동 내역 2: 신고 내역]
+                    item {
+                        Text(
+                            "신고 내역 (${data.reports.size})",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Divider(modifier = Modifier.padding(vertical = 4.dp))
+                    }
+                    if (data.reports.isEmpty()) {
+                        item { Text("신고 내역 없음", color = Color.Gray, fontSize = 14.sp) }
+                    } else {
+                        items(data.reports) { report ->
+                            Text(
+                                "- Report ID: ${report.reportId} (${report.createdAt.take(10)})",
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+
+                    // 리스트 하단 여백 확보 (버튼에 가려지지 않게)
+                    item { Spacer(modifier = Modifier.height(80.dp)) }
+                }
+            } else {
+                Text("유저 정보를 찾을 수 없습니다.", modifier = Modifier.align(Alignment.Center))
             }
         }
     }

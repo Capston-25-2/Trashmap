@@ -1,12 +1,14 @@
-// In /ui/main/RegisterScreen.kt
-
 package com.example.trashmapv2.ui.main
 
 import android.net.Uri
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,132 +17,126 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage // 👈 (1) Coil import
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.trashmapv2.R
 
-/**
- * 화면 1: "검증 중" UI (수정 없음)
- */
+// 검증 화면 (변경 없음)
 @Composable
-fun VerifyingScreen(
-    modifier: Modifier = Modifier
-) {
+fun VerifyingScreen(modifier: Modifier = Modifier) {
     Box(
-        modifier = modifier
-            .background(MaterialTheme.colorScheme.primary),
+        modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center
     ) {
-        // ⬇️ 🌟 (2) 여기에 'Column'을 추가합니다.
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(24.dp) // (아이콘과 텍스트 사이 간격)
-        ) {
-            // (TODO: R.drawable.ic_search_placeholder를 '돋보기' 아이콘으로 변경하세요)
-            Icon(
-                painter = painterResource(id = R.drawable.ic_search_placeholder),
-                contentDescription = "검증 중",
-                modifier = Modifier.size(80.dp)
-            )
-            Text(
-                text = "검증 중",
-                style = MaterialTheme.typography.headlineMedium
-            )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator()
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("처리 중입니다...", style = MaterialTheme.typography.titleMedium)
         }
     }
 }
 
-
-/**
- * 🌟 (수정!) 화면 2: "등록하기" UI
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RegisterScreen(
-    modifier: Modifier = Modifier,
-    photoUri: Uri?, // 👈 (1) 검증된 사진 URI
-    onRegisterClick: (Set<String>) -> Unit // 👈 (2) 'onTakePhotoClick' 삭제됨
+    photoUri: Uri?,
+    address: String,
+    onBackClick: () -> Unit,
+    onPhotoClick: () -> Unit,
+    onRegisterClick: (Set<String>) -> Unit // [수정] 설명(String) 파라미터 제거
 ) {
+    // [삭제] var description by remember ... (설명 변수 삭제)
     var selectedCategories by remember { mutableStateOf(setOf<String>()) }
     val categories = listOf("일반", "재활용", "음료")
 
-    Column(
-        modifier = modifier
-            .background(MaterialTheme.colorScheme.primary)
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // (상단 아이콘 + 타이틀)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(painterResource(id = R.drawable.aperture), contentDescription = "등록")
-            Text("등록하기", style = MaterialTheme.typography.titleMedium)
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("새 쓰레기통 등록") },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "뒤로가기")
+                    }
+                }
+            )
         }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // (3) 🌟 사진 표시 박스 (이제 'clickable'이 아님)
-        Box(
+    ) { padding ->
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color.LightGray),
-            contentAlignment = Alignment.Center
+                .fillMaxSize()
+                .padding(padding)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            if (photoUri != null) {
-                // (검증된 사진을 Coil로 표시)
-                AsyncImage(
-                    model = photoUri,
-                    contentDescription = "검증된 사진",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                // (혹시 사진이 없으면 아이콘 표시)
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_trash_empty_placeholder), // (TODO: '에러' 아이콘)
-                    contentDescription = "사진 없음",
-                    modifier = Modifier.size(60.dp),
-                    tint = Color.Gray
-                )
+            // 1. 사진 영역 (변경 없음)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.LightGray)
+                    .clickable { onPhotoClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                if (photoUri != null) {
+                    AsyncImage(
+                        model = photoUri,
+                        contentDescription = "찍은 사진",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null, tint = Color.Gray)
+                        Text("사진 없음", color = Color.Gray)
+                    }
+                }
             }
-        }
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-        // (4) 카테고리 칩 (수정 없음)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
-        ) {
-            categories.forEach { category ->
-                val isSelected = selectedCategories.contains(category)
-                FilterChip(
-                    selected = isSelected,
-                    onClick = {
-                        val newSet = selectedCategories.toMutableSet()
-                        if (isSelected) newSet.remove(category) else newSet.add(category)
-                        selectedCategories = newSet
-                    },
-                    label = { Text(category) }
-                )
+            // 2. 위치 정보
+            Text("위치", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+            Text(text = address, fontSize = 16.sp, modifier = Modifier.align(Alignment.Start))
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // [삭제] 3. 설명 입력 (OutlinedTextField 삭제됨)
+
+            // 4. 카테고리 선택
+            Text("종류 선택", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                categories.forEach { category ->
+                    val isSelected = selectedCategories.contains(category)
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = {
+                            val newSet = selectedCategories.toMutableSet()
+                            if (isSelected) newSet.remove(category) else newSet.add(category)
+                            selectedCategories = newSet
+                        },
+                        label = { Text(category) },
+                        leadingIcon = if (isSelected) {
+                            { Icon(Icons.Default.Check, contentDescription = null) }
+                        } else null
+                    )
+                }
             }
-        }
 
-        Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.weight(1f))
 
-        // (5) 등록하기 버튼
-        Button(
-            onClick = { onRegisterClick(selectedCategories) },
-            // (카테고리가 1개 이상 선택됐을 때만 활성화)
-            enabled = selectedCategories.isNotEmpty(), // 👈 🌟 'photoUri != null' 조건 삭제
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(50)
-        ) {
-            Text("등록하기", modifier = Modifier.padding(vertical = 8.dp))
+            // 5. 등록 버튼
+            Button(
+                // description 전달 삭제
+                onClick = { onRegisterClick(selectedCategories) },
+                enabled = selectedCategories.isNotEmpty() && photoUri != null,
+                modifier = Modifier.fillMaxWidth().height(56.dp)
+            ) {
+                Text("등록하기", fontSize = 18.sp)
+            }
         }
     }
 }

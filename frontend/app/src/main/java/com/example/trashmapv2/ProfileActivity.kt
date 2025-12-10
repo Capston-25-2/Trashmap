@@ -202,7 +202,7 @@ fun ProfileScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         // 2. [추가] 관리자 버튼 (role이 admin일 때만 표시)
-        if (uiState.role == "user") {
+        if (uiState.role == "admin") {
             Button(
                 onClick = {
                     // AdminActivity로 이동 (파일이 없으면 빨간줄 뜰 수 있음 -> 만들어야 함)
@@ -383,5 +383,5 @@ data class ProfileUiState(
     val level: Int = 1,
     val exp: Int = 0,
     val maxExp: Int = 20,
-    val role: String = "user" // [추가] 기본값 "user"
+    val role: String = "user"
 )

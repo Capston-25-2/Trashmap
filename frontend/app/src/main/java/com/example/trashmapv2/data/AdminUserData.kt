@@ -13,8 +13,8 @@ data class AdminUserItem(
     @SerializedName("created_at") val createdAt: String,
 
     // 아래 두 개는 서버에서 세어서 보내주는 숫자
-    @SerializedName("trashcan_count") val trashcanCount: Int = 0,
-    @SerializedName("report_count") val reportCount: Int = 0
+    @SerializedName("trashcan_count") val trashcanCount: Int,
+    @SerializedName("report_count") val reportCount: Int
 )
 
 // 2. 유저 리스트 응답 (서버가 주는 전체 껍데기)

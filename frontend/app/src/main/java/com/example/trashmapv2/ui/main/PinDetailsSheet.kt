@@ -1,5 +1,6 @@
 package com.example.trashmapv2.ui.main
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,23 +15,51 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.trashmapv2.R
+import com.example.trashmapv2.auth.TokenManager
 import com.example.trashmapv2.data.BinDetail
+import com.example.trashmapv2.network.RetrofitClient
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PinDetailsSheet(
     binInfo: BinDetail,
-    onDismiss: () -> Unit,
-    // 1: 위치 없음 2: 꽉참 3: 파손
     onReportAction: (Int) -> Unit
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var isReportMode by remember { mutableStateOf(false) }
+
+    // [추가] 서버에서 새로 받아올 이미지 URL 상태
+    var realImageUrl by remember { mutableStateOf<String?>(null) }
+
+    // [핵심] 바텀시트가 열릴 때(binInfo.id가 바뀔 때) 상세 정보를 새로 요청
+    LaunchedEffect(binInfo.id) {
+        val token = TokenManager.getAuthToken(context)
+        if (token != null) {
+            try {
+                // 관리자 페이지에서 썼던 상세 조회 API 재사용
+                val response = RetrofitClient.apiInstance.getBinDetail("Bearer $token", binInfo.id)
+                if (response.isSuccessful) {
+                    val serverDetail = response.body()
+                    // 서버에서 받은 이미지 URL 저장 (null이면 기존 것 유지하거나 빈 값)
+                    realImageUrl = serverDetail?.imgUrl
+                    Log.d("PinDetail", "이미지 로드 성공: $realImageUrl")
+                } else {
+                    Log.e("PinDetail", "상세 정보 로드 실패: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                Log.e("PinDetail", "에러 발생", e)
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -39,8 +68,10 @@ fun PinDetailsSheet(
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // [수정] binInfo.imageUrl 대신 새로 받아온 realImageUrl 사용
+        // 아직 로딩 안 됐으면(null이면) 플레이스홀더가 나옴
         AsyncImage(
-            model = binInfo.imageUrl,
+            model = realImageUrl,
             contentDescription = binInfo.description,
             modifier = Modifier
                 .fillMaxWidth()
@@ -49,7 +80,9 @@ fun PinDetailsSheet(
                 .background(Color.LightGray),
             contentScale = ContentScale.Crop,
             placeholder = painterResource(id = R.drawable.ic_image_placeholder),
-            error = painterResource(id = R.drawable.ic_image_placeholder)
+            error = painterResource(id = R.drawable.ic_image_placeholder),
+            onLoading = { Log.d("AsyncImage", "로딩 중...") },
+            onError = { Log.e("AsyncImage", "로딩 실패: ${it.result.throwable.message}") }
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -68,14 +101,10 @@ fun PinDetailsSheet(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // [수정 2] 하단 버튼 영역 연결
         if (isReportMode) {
             ReportModeButtons(
                 onCancelReport = { isReportMode = false },
-                // 버튼을 누르면 -> onReportAction을 통해 메인으로 숫자(1,2,3)를 보냄
-                onActionClick = { reportType ->
-                    onReportAction(reportType)
-                }
+                onActionClick = { reportType -> onReportAction(reportType) }
             )
         } else {
             DefaultModeButtons(
@@ -88,6 +117,7 @@ fun PinDetailsSheet(
     }
 }
 
+// ... 아래 DefaultModeButtons, ReportModeButtons, SheetButton, mapCategoriesToString 등은 기존과 동일 ...
 @Composable
 fun DefaultModeButtons(
     isVerified: Boolean,
@@ -106,7 +136,7 @@ fun DefaultModeButtons(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Icon(
-                painter = painterResource(id = R.drawable.ic_report_placeholder), // 아이콘 리소스 확인 필요
+                painter = painterResource(id = R.drawable.ic_report_placeholder),
                 contentDescription = "신고하기",
                 modifier = Modifier.size(24.dp),
                 tint = Color.Unspecified
@@ -120,7 +150,7 @@ fun DefaultModeButtons(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Icon(
-                    painter = painterResource(id = R.drawable.ic_verified_placeholder), // 아이콘 리소스 확인 필요
+                    painter = painterResource(id = R.drawable.ic_verified_placeholder),
                     contentDescription = "기관 인증됨",
                     modifier = Modifier.size(24.dp),
                     tint = Color.Unspecified
@@ -136,7 +166,7 @@ fun DefaultModeButtons(
 @Composable
 fun ReportModeButtons(
     onCancelReport: () -> Unit,
-    onActionClick: (Int) -> Unit 
+    onActionClick: (Int) -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -147,42 +177,35 @@ fun ReportModeButtons(
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 1. 취소
         SheetButton(
             modifier = Modifier.weight(1f),
             iconResId = R.drawable.ic_report_placeholder,
             text = "취소",
             onClick = onCancelReport
         )
-
-        // 2. 파손됨 (Type 2)
         SheetButton(
             modifier = Modifier.weight(1f),
             iconResId = R.drawable.ic_trash_empty_placeholder,
             text = "파손됨",
-            onClick = { onActionClick(3) } // 2번 전달
+            onClick = { onActionClick(3) }
         )
-
-        // 3. 위치에 없어요 (Type 3)
         SheetButton(
             modifier = Modifier.weight(1f),
             iconResId = R.drawable.ic_trash_empty_placeholder,
-            text = "위치 X", // 텍스트가 길어서 줄임
-            onClick = { onActionClick(1) } // 3번 전달
+            text = "위치 X",
+            onClick = { onActionClick(2) }
         )
-
-        // 4. 꽉 찼어요 (Type 1)
         SheetButton(
             modifier = Modifier.weight(1f),
             iconResId = R.drawable.ic_trash_full_placeholder,
             text = "꽉 찼어요",
-            onClick = { onActionClick(2) } // 1번 전달
+            onClick = { onActionClick(1) }
         )
     }
 }
 
 @Composable
-fun RowScope.SheetButton(
+fun SheetButton(
     modifier: Modifier = Modifier,
     iconResId: Int,
     text: String,

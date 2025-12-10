@@ -1,212 +1,198 @@
 package com.example.trashmapv2.ui.admin
 
+import com.example.trashmapv2.R
 import android.util.Log
 import android.widget.Toast
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
+import com.example.trashmapv2.BuildConfig
 import com.example.trashmapv2.auth.TokenManager
-import com.example.trashmapv2.data.AdminBinItem
+import com.example.trashmapv2.network.AdminBinItem
+import com.example.trashmapv2.network.BinDetail
+import com.example.trashmapv2.network.KakaoRetrofitClient
 import com.example.trashmapv2.network.RetrofitClient
-import com.example.trashmapv2.auth.AdminPrefs
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalFoundationApi::class) // 롱클릭(combinedClickable) 사용 위해 필요
+// 검색 모드 정의
+enum class SearchMode { REGION, USER }
+
+
+// ==========================================
+// [Screen 1] 쓰레기통 목록 및 검색 화면
+// ==========================================
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrashManagementScreen(navController: NavController) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // --- 상태 변수들 ---
-    // 1. 데이터 관련
+    // 상태 변수
     var binList by remember { mutableStateOf<List<AdminBinItem>>(emptyList()) }
-    var totalCount by remember { mutableIntStateOf(0) }
     var isLoading by remember { mutableStateOf(false) }
 
-    // 2. 필터 및 정렬
-    var currentDong by remember { mutableStateOf<String?>(null) } // 관할 동
-    var sortBy by remember { mutableStateOf("date") } // "date"(생성일) or "issues"(이슈수)
+    // 검색 관련
+    var searchMode by remember { mutableStateOf(SearchMode.REGION) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf<List<String>>(emptyList()) } // 주소 자동완성용
+    var isSearching by remember { mutableStateOf(false) } // 드롭다운 노출 여부
 
-    // 3. 페이지네이션
-    var currentPage by remember { mutableIntStateOf(1) }
-    val itemsPerPage = 10
-    val totalPages = (totalCount + itemsPerPage - 1) / itemsPerPage
-
-    // 4. 선택 모드 (삭제용)
-    var isSelectionMode by remember { mutableStateOf(false) }
-    val selectedIds = remember { mutableStateListOf<Int>() }
-    var showDeleteDialog by remember { mutableStateOf(false) }
-
-    // --- API 함수 ---
-    fun fetchData() {
+    // --- API: 목록 로드 함수 ---
+    fun loadBins(query: String, mode: SearchMode) {
+        isLoading = true
         coroutineScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
-            isLoading = true
             try {
-                // API 호출
+                // 모드에 따라 파라미터 분기 (REGION->dong, USER->author)
+                val dongParam = if (mode == SearchMode.REGION) query else null
+                val authorParam = if (mode == SearchMode.USER) query else null
+
                 val response = RetrofitClient.apiInstance.getAdminBinList(
                     token = "Bearer $token",
-                    dong = currentDong, // 관할 동 (없으면 null -> 전체 조회)
-                    sortBy = sortBy,
-                    page = currentPage,
-                    limit = itemsPerPage
+                    dong = dongParam,
+                    author = authorParam,
+                    offset = 0,
+                    limit = 100
                 )
 
                 if (response.isSuccessful) {
-                    val result = response.body()
-                    binList = result?.data ?: emptyList()
-                    totalCount = result?.totalCount ?: 0
-                    // 페이지가 바뀌면 선택 모드 해제
-                    isSelectionMode = false
-                    selectedIds.clear()
+                    binList = response.body()?.data ?: emptyList()
+                    if (binList.isEmpty()) {
+                        Toast.makeText(context, "검색 결과가 없습니다.", Toast.LENGTH_SHORT).show()
+                    }
                 } else {
-                    Log.e("AdminTrash", "로드 실패: ${response.code()}")
+                    Log.e("API_ERROR", "Error: ${response.code()}")
+                    Toast.makeText(context, "데이터 로드 실패", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Log.e("AdminTrash", "에러", e)
+                Log.e("FetchBins", "Error", e)
+                Toast.makeText(context, "네트워크 오류 발생", Toast.LENGTH_SHORT).show()
             } finally {
                 isLoading = false
             }
         }
     }
 
-    // 삭제 실행 함수
-    fun deleteSelectedBins() {
+    // --- API: 카카오 주소 검색 ---
+    fun searchAddress(query: String) {
+        if (query.length < 2 || searchMode == SearchMode.USER) return
+
         coroutineScope.launch {
-            val token = TokenManager.getAuthToken(context) ?: return@launch
-            var successCount = 0
-
-            // 선택된 ID들을 하나씩 삭제 요청 (일괄 삭제 API가 있다면 그걸 쓰는 게 좋음)
-            selectedIds.forEach { id ->
-                try {
-                    val response = RetrofitClient.apiInstance.deleteBin("Bearer $token", id)
-                    if (response.isSuccessful) successCount++
-                } catch (e: Exception) {
-                    Log.e("AdminTrash", "삭제 에러 ($id)", e)
+            try {
+                val response = KakaoRetrofitClient.service.searchAddress(
+                    apiKey = "KakaoAK ${BuildConfig.KAKAO_REST_API_KEY}", // BuildConfig 확인 필요
+                    query = query
+                )
+                if (response.isSuccessful) {
+                    val docs = response.body()?.documents ?: emptyList()
+                    searchResults = docs.map { it.addressName }
+                    isSearching = true
                 }
+            } catch (e: Exception) {
+                Log.e("AddressSearch", "검색 실패", e)
             }
-
-            Toast.makeText(context, "$successCount 개 삭제 완료", Toast.LENGTH_SHORT).show()
-
-            // 초기화 및 재로딩
-            isSelectionMode = false
-            selectedIds.clear()
-            showDeleteDialog = false
-            fetchData() // 목록 갱신
         }
     }
 
-    // --- 초기화 ---
-    LaunchedEffect(Unit) {
-        // 1. 관할 구역 불러오기
-        val myJurisdiction = AdminPrefs.getJurisdiction(context)
-        currentDong = if (!myJurisdiction.isNullOrEmpty()) myJurisdiction else null
-
-        // 2. 데이터 로드
-        fetchData()
-    }
-
-    // 정렬이나 페이지가 바뀌면 데이터 다시 로드
-    LaunchedEffect(sortBy, currentPage) {
-        fetchData()
-    }
-
-    // --- 화면 구성 ---
-    SubScreenLayout(title = "쓰레기통 관리", navController = navController) {
-        Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF5F5F5))) {
-
-            // [1] 상단: 필터 정보 & 정렬 버튼
-            Surface(shadowElevation = 2.dp, color = Color.White) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // 관할 지역 표시
-                    Column {
-                        Text("관할 구역", fontSize = 12.sp, color = Color.Gray)
-                        Text(
-                            text = currentDong ?: "전체 지역 (관할 없음)",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
-                        )
+    Scaffold(
+        topBar = {
+            TopAppBar(title = { Text("쓰레기통 관리") })
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(16.dp)
+        ) {
+            // [1] 검색 모드 선택 (라디오 버튼)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(
+                    selected = searchMode == SearchMode.REGION,
+                    onClick = {
+                        searchMode = SearchMode.REGION; searchQuery = ""; binList = emptyList()
                     }
-
-                    // 정렬 버튼 (토글)
-                    Button(
-                        onClick = {
-                            sortBy = if (sortBy == "date") "issues" else "date"
-                            currentPage = 1 // 정렬 바꾸면 1페이지로
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFEEEEEE),
-                            contentColor = Color.Black
-                        ),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Icon(Icons.Default.Sort, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(if (sortBy == "date") "생성일순" else "이슈많은순")
+                )
+                Text("지역(동) 검색", modifier = Modifier.clickable { searchMode = SearchMode.REGION })
+                Spacer(modifier = Modifier.width(16.dp))
+                RadioButton(
+                    selected = searchMode == SearchMode.USER,
+                    onClick = {
+                        searchMode = SearchMode.USER; searchQuery = ""; binList = emptyList()
                     }
-                }
+                )
+                Text("유저 이름 검색", modifier = Modifier.clickable { searchMode = SearchMode.USER })
             }
 
-            // [2] 메인 리스트
-            Box(modifier = Modifier.weight(1f)) {
-                if (isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                } else if (binList.isEmpty()) {
-                    Text("등록된 쓰레기통이 없습니다.", modifier = Modifier.align(Alignment.Center), color = Color.Gray)
-                } else {
-                    LazyColumn(
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(binList) { bin ->
-                            TrashcanItemCard(
-                                item = bin,
-                                isSelectionMode = isSelectionMode,
-                                isSelected = selectedIds.contains(bin.id),
-                                onLongClick = {
-                                    // 꾹 누르면 선택 모드 진입
-                                    if (!isSelectionMode) {
-                                        isSelectionMode = true
-                                        selectedIds.add(bin.id)
-                                    }
-                                },
-                                onClick = {
-                                    if (isSelectionMode) {
-                                        // 선택 모드일 땐 체크박스 토글
-                                        if (selectedIds.contains(bin.id)) selectedIds.remove(bin.id)
-                                        else selectedIds.add(bin.id)
+            Spacer(modifier = Modifier.height(8.dp))
 
-                                        // 다 해제하면 선택 모드 종료
-                                        if (selectedIds.isEmpty()) isSelectionMode = false
-                                    } else {
-                                        // 일반 클릭: 상세 정보 보여주기 (필요 시 구현)
-                                        // Toast.makeText(context, "ID: ${bin.id}", Toast.LENGTH_SHORT).show()
-                                    }
+            // [2] 검색창 & 자동완성 드롭다운
+            ExposedDropdownMenuBox(
+                expanded = isSearching && searchResults.isNotEmpty() && searchMode == SearchMode.REGION,
+                onExpandedChange = { isSearching = it }
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = {
+                        searchQuery = it
+                        if (searchMode == SearchMode.REGION) searchAddress(it)
+                    },
+                    label = {
+                        Text(if (searchMode == SearchMode.REGION) "동 이름 (예: 화곡동)" else "유저 이름")
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = {
+                            if (searchQuery.isNotEmpty()) {
+                                loadBins(searchQuery, searchMode)
+                                isSearching = false
+                            }
+                        }) {
+                            Icon(Icons.Default.Search, contentDescription = "검색")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().menuAnchor(),
+                    singleLine = true
+                )
+
+                // 자동완성 목록 (지역 검색일 때만)
+                if (searchMode == SearchMode.REGION && searchResults.isNotEmpty()) {
+                    ExposedDropdownMenu(
+                        expanded = isSearching,
+                        onDismissRequest = { isSearching = false }
+                    ) {
+                        searchResults.forEach { address ->
+                            DropdownMenuItem(
+                                text = { Text(address) },
+                                onClick = {
+                                    val trimmed = address.trim()
+                                    // "동" 단위 파싱 로직 (필요 시 더 정교하게 수정)
+                                    val realDong = trimmed.split(" ").last()
+                                    searchQuery = realDong
+                                    isSearching = false
+                                    loadBins(realDong, SearchMode.REGION)
                                 }
                             )
                         }
@@ -214,182 +200,242 @@ fun TrashManagementScreen(navController: NavController) {
                 }
             }
 
-            // [3] 하단: 페이지네이션 OR 삭제 버튼
-            Surface(shadowElevation = 8.dp, color = Color.White) {
-                if (isSelectionMode) {
-                    // [삭제 모드] 삭제 버튼 표시
-                    Button(
-                        onClick = { showDeleteDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5252)),
-                        modifier = Modifier.fillMaxWidth().padding(16.dp)
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("선택한 ${selectedIds.size}개 삭제하기")
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // [3] 결과 목록
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            } else {
+                Text(
+                    text = "검색 결과: ${binList.size}건",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(binList) { bin ->
+                        AdminBinItemCard(bin) {
+                            navController.navigate("trash_detail/${bin.trashcanId}")
+                        }
                     }
-                } else {
-                    // [일반 모드] 숫자 페이지네이션
-                    PaginationBar(
-                        currentPage = currentPage,
-                        totalPages = totalPages,
-                        onPageClick = { page -> currentPage = page }
-                    )
                 }
             }
-        }
-
-        // 삭제 확인 다이얼로그
-        if (showDeleteDialog) {
-            AlertDialog(
-                onDismissRequest = { showDeleteDialog = false },
-                title = { Text("삭제 확인") },
-                text = { Text("정말 선택한 ${selectedIds.size}개의 쓰레기통을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.") },
-                confirmButton = {
-                    Button(onClick = { deleteSelectedBins() }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) {
-                        Text("삭제")
-                    }
-                },
-                dismissButton = {
-                    Button(onClick = { showDeleteDialog = false }) { Text("취소") }
-                }
-            )
         }
     }
 }
-
-// -----------------------------------------------------------
-// 리스트 아이템 컴포넌트
-@OptIn(ExperimentalFoundationApi::class)
+// ==========================================
+// [Component] 목록 아이템 카드
+// ==========================================
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TrashcanItemCard(
-    item: AdminBinItem,
-    isSelectionMode: Boolean,
-    isSelected: Boolean,
-    onLongClick: () -> Unit,
-    onClick: () -> Unit
-) {
+fun AdminBinItemCard(item: AdminBinItem, onClick: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) Color(0xFFE3F2FD) else Color.White
-        ),
-        elevation = CardDefaults.cardElevation(2.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable( // 꾹 누르기 지원
-                onClick = onClick,
-                onLongClick = onLongClick
-            )
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // 선택 모드일 때만 체크박스 보이기
-            if (isSelectionMode) {
-                Checkbox(
-                    checked = isSelected,
-                    onCheckedChange = { onClick() } // 체크박스 눌러도 클릭 처리
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-            }
-
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "id:${item.id}",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    // 상태 뱃지
-                    Surface(
-                        color = if (item.status == "approved") Color(0xFFE8F5E9) else Color(0xFFFFF3E0),
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Text(
-                            text = if (item.status == "approved") "정상" else "대기",
-                            fontSize = 10.sp,
-                            color = if (item.status == "approved") Color(0xFF2E7D32) else Color(0xFFEF6C00),
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 Text(
-                    text = item.address ?: item.dong ?: "주소 미상",
-                    fontSize = 16.sp
-                )
-            }
-
-            // 우측 정보 (이슈 수, 날짜)
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = "이슈: ${item.issueCount}",
+                    text = "ID: ${item.trashcanId}",
                     fontWeight = FontWeight.Bold,
-                    color = if (item.issueCount > 0) Color.Red else Color.Gray
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = item.createdAt.take(10), // 날짜만 자르기 (2025-10-05)
                     fontSize = 12.sp,
                     color = Color.Gray
                 )
+                Text(
+                    text = item.author.username,
+                    fontSize = 12.sp,
+                    color = Color.Blue,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // 주소 표시 (백엔드에서 dong만 주면 dong 표시, address 있으면 address 표시)
+            Text(
+                text = item.dong ?: "위치 정보 없음",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // 상태 표시
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "상태: ${item.status}",
+                    fontSize = 12.sp,
+                    color = if (item.status == "approved") Color.Green else Color.Red
+                )
             }
         }
     }
 }
 
-// -----------------------------------------------------------
-// 페이지네이션 컴포넌트 (1 2 3 4 5)
+// ==========================================
+// [Screen 2] 상세 정보 및 삭제 화면
+// ==========================================
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PaginationBar(
-    currentPage: Int,
-    totalPages: Int,
-    onPageClick: (Int) -> Unit
-) {
-    if (totalPages <= 1) return // 페이지가 1개면 안 보여줌
+fun TrashBinDetailScreen(navController: NavController, binId: Int) {
+    // ... (기존 변수 및 LaunchedEffect, deleteBin 함수 동일) ...
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
+    var binDetail by remember { mutableStateOf<BinDetail?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    // 초기 데이터 로드
+    LaunchedEffect(binId) {
+        val token = TokenManager.getAuthToken(context) ?: return@LaunchedEffect
+        try {
+            val response = RetrofitClient.apiInstance.getBinDetail("Bearer $token", binId)
+            if (response.isSuccessful) {
+                binDetail = response.body()
+            } else {
+                Toast.makeText(context, "상세 정보를 불러오지 못했습니다.", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Log.e("Detail", "Error", e)
+        } finally {
+            isLoading = false
+        }
+    }
+
+    // 삭제 함수
+    fun deleteBin() {
+        coroutineScope.launch {
+            val token = TokenManager.getAuthToken(context) ?: return@launch
+            try {
+                val response = RetrofitClient.apiInstance.deleteBin("Bearer $token", binId)
+                if (response.isSuccessful) {
+                    Toast.makeText(context, "삭제되었습니다.", Toast.LENGTH_SHORT).show()
+                    navController.popBackStack() // 목록으로 복귀
+                } else {
+                    Toast.makeText(context, "삭제 실패 (Code: ${response.code()})", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "오류: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("상세 정보") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "뒤로가기")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            } else if (binDetail == null) {
+                Text("정보가 없습니다.", modifier = Modifier.align(Alignment.Center))
+            } else {
+                val bin = binDetail!!
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(20.dp)
+                        .verticalScroll(rememberScrollState()) // ✅ 스크롤 가능하게 설정
+                ) {
+                    Text("기본 정보", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    DetailRow("ID", bin.trashcanId.toString())
+                    DetailRow("등록자", bin.author.username)
+                    DetailRow("등록일", bin.createdAt.take(10))
+                    DetailRow("주소", bin.body ?: "주소 정보 없음")
+                    val categoryText = if (bin.categories.isNotEmpty()) {
+                        bin.categories.joinToString(", ")
+                    } else {
+                        "카테고리 없음"
+                    }
+                    DetailRow("종류", categoryText)
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Text("위치 및 상태", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    DetailRow("상태", bin.status)
+                    DetailRow("검증 여부", if(bin.isVerified) "인증됨" else "미인증")
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+
+                    Text("현장 사진", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(250.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        elevation = CardDefaults.cardElevation(4.dp)
+                    ) {
+                        AsyncImage(
+                            // binDetail 데이터 클래스에 imageUrl 필드가 있다고 가정합니다.
+                            // 만약 이름이 다르다면 bin.imgUrl 등으로 수정해주세요.
+                            model = bin.imgUrl,
+                            contentDescription = "쓰레기통 현장 사진",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                            placeholder = painterResource(id = R.drawable.ic_image_placeholder),
+                            error = painterResource(id = R.drawable.ic_image_placeholder)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(32.dp)) // 버튼과 간격
+
+                    // 삭제 버튼
+                    Button(
+                        onClick = { deleteBin() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                        modifier = Modifier.fillMaxWidth().height(56.dp)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null, tint = Color.White)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("쓰레기통 삭제", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp)) // 하단 여백
+                }
+            }
+        }
+    }
+}
+
+// (참고용) DetailRow 컴포저블 예시
+@Composable
+fun DetailRow(label: String, value: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // [이전] 버튼
-        if (currentPage > 1) {
-            TextButton(onClick = { onPageClick(currentPage - 1) }) { Text("<") }
-        }
-
-        // 숫자 버튼 (현재 페이지 주변 5개만 보여주기 로직)
-        val startPage = maxOf(1, currentPage - 2)
-        val endPage = minOf(totalPages, startPage + 4)
-
-        for (i in startPage..endPage) {
-            val isCurrent = i == currentPage
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 4.dp)
-                    .size(36.dp)
-                    .background(
-                        color = if (isCurrent) Color.Black else Color.Transparent,
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .clickable { onPageClick(i) },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "$i",
-                    color = if (isCurrent) Color.White else Color.Black,
-                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
-                )
-            }
-        }
-
-        // [다음] 버튼
-        if (currentPage < totalPages) {
-            TextButton(onClick = { onPageClick(currentPage + 1) }) { Text(">") }
-        }
+        Text(text = label, color = Color.Gray, fontWeight = FontWeight.Medium)
+        Text(text = value, fontWeight = FontWeight.Bold)
     }
 }

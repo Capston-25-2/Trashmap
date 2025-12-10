@@ -1,14 +1,14 @@
-// In /ui/main/MissionDetailsSheet.kt
-
 package com.example.trashmapv2.ui.main
 
-import android.util.Log
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -19,9 +19,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.trashmapv2.R
-import com.example.trashmapv2.data.MissionInfo // 👈 MissionInfo 사용
+import com.example.trashmapv2.data.MissionInfo
 
 /**
  * '미션 핀'을 클릭했을 때 하단에서 올라오는 BottomSheet UI
@@ -30,7 +31,7 @@ import com.example.trashmapv2.data.MissionInfo // 👈 MissionInfo 사용
 @Composable
 fun MissionDetailsSheet(
     missionInfo: MissionInfo,
-    onVerifyClick: (Boolean) -> Unit, // 👈 "예"(true) / "아니요"(false) 클릭 시 호출
+    onVerifyClick: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     Column(
@@ -40,80 +41,96 @@ fun MissionDetailsSheet(
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 1. 상단 손잡이 (MainActivity에서 그림)
-        // BottomSheetDefaults.DragHandle() // 👈 (05:51 PM 버전 기준, 이 줄은 *삭제*된 상태여야 함)
-
-        // 2. Coil 이미지 로더
+        // 1. 현장 이미지
         AsyncImage(
             model = missionInfo.imageUrl,
-            contentDescription = missionInfo.question,
+            contentDescription = missionInfo.description,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(200.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color.LightGray),
             contentScale = ContentScale.Crop,
-            placeholder = painterResource(id = R.drawable.ic_image_placeholder), // (TODO: 기본 이미지)
-            error = painterResource(id = R.drawable.ic_image_placeholder) // (TODO: 기본 이미지)
+            placeholder = painterResource(id = R.drawable.ic_image_placeholder),
+            error = painterResource(id = R.drawable.ic_image_placeholder)
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        // 3. 질문 (예: "진짜 쓰레기통인가요?")
+        // 2. [추가] 제보 유형 (제목) 표시
         Text(
-            text = missionInfo.question,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
-        )
-
-        // 4. 쓰레기통 종류
-        Text(
-            text = missionInfo.categories,
-            style = MaterialTheme.typography.bodyMedium,
+            text = "신고 내용",
+            fontSize = 12.sp,
             color = Color.Gray
         )
 
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = missionInfo.title, // 예: "제보 확인: 파손됨"
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = Color.Black
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // 3. 투표 현황 설명
+        Text(
+            text = "현재 투표 현황: ${missionInfo.description}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.DarkGray
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "사진 속 상황이 신고 내용과 일치하나요?",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
+
         Spacer(modifier = Modifier.height(24.dp))
 
-        // 5. "예" / "아니요" 버튼
+        // 4. "예" / "아니요" 버튼 (버그 수정됨)
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // "예" 버튼
+            // [수정] "아니요" 버튼 -> false 전송
             Button(
-                onClick = { onVerifyClick(false) },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(50),
+                onClick = { onVerifyClick(false) }, // false
+                modifier = Modifier.weight(1f).height(50.dp),
+                shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    containerColor = Color(0xFFFFEBEE), // 연한 빨강 배경
+                    contentColor = Color.Red
                 ),
-                border = BorderStroke(1.dp, Color.Gray) // 테두리
+                border = BorderStroke(1.dp, Color.Red.copy(alpha = 0.5f))
             ) {
-                Icon(painterResource(id = R.drawable.ic_report_placeholder), contentDescription = "아니요", modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("예")
+                Icon(Icons.Default.Close, contentDescription = "아니요")
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("아니요", fontWeight = FontWeight.Bold)
             }
 
-            // "아니요" 버튼
+            // [수정] "예" 버튼 -> true 전송 (중요!)
             Button(
-                onClick = { onVerifyClick(false) },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(50),
+                onClick = { onVerifyClick(true) }, // true
+                modifier = Modifier.weight(1f).height(50.dp),
+                shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.surface, // 흰색 배경
-                    contentColor = MaterialTheme.colorScheme.onSurface, // 검은색 글씨
+                    containerColor = Color(0xFFE8F5E9), // 연한 초록 배경
+                    contentColor = Color(0xFF2E7D32)    // 진한 초록 글씨
                 ),
-                border = BorderStroke(1.dp, Color.Gray) // 테두리
+                border = BorderStroke(1.dp, Color(0xFF2E7D32).copy(alpha = 0.5f))
             ) {
-                Icon(painterResource(id = R.drawable.ic_report_placeholder), contentDescription = "예", modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("아니요")
+                Icon(Icons.Default.Check, contentDescription = "예")
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("맞아요", fontWeight = FontWeight.Bold)
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(32.dp))
     }
 }
