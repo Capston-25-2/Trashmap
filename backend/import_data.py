@@ -108,6 +108,7 @@ async def import_all_csv():
                 
                 # [핵심] 컬럼명 앞뒤 공백 제거 (예: ' 관리번호' -> '관리번호')
                 df.columns = df.columns.str.strip()
+                df.columns = df.columns.str.replace('\xa0', '')
                 
             except Exception as e:
                 print(f"   ⚠️ 파일 읽기 실패: {e}")
