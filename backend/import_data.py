@@ -160,7 +160,7 @@ async def import_all_csv():
                     point = from_shape(Point(float(lon), float(lat)), srid=4326)
                 except ValueError:
                     continue # 좌표가 숫자가 아닌 경우 등
-
+                """
                 dup_query = select(models.Trashcan).where(
                     ST_DWithin(models.Trashcan.geom, point, 5) 
                 )
@@ -168,7 +168,7 @@ async def import_all_csv():
                 if dup_result.first():
                     file_skipped += 1
                     continue
-
+                """
                 # 5. 동 이름 추출
                 dong = ""
                 if search_query:
