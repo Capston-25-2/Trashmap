@@ -10,7 +10,7 @@ from model import models
 
 # [설정] 관리자 계정 ID (이 사람 이름으로 등록됩니다)
 ADMIN_USER_ID = 3
-CSV_FILE_PATH = "서울특별시_성북구_휴지통_20250901.csv"
+CSV_FILE_PATH = "../data/서울특별시_성북구_휴지통_20250901.csv"
 
 async def import_trashcans():
     print("📂 데이터 가져오기 시작...")
