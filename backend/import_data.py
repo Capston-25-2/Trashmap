@@ -35,13 +35,14 @@ async def import_trashcans():
         for _, row in df.iterrows():
             # 3. 데이터 파싱
             body = row['설치장소명']
-            address = row['소재지지번주소'] if pd.notna(row['소재지지번주소']) else row['소재지도로명주소']
             
+            # 주소 정보 (동 이름 추출용으로만 쓰고, DB엔 저장 안 함!)
+            address_str = row['소재지지번주소'] if pd.notna(row['소재지지번주소']) else row['소재지도로명주소']
             # 동 이름 추출 (주소의 3번째 어절이 보통 동 이름)
             # 예: "서울특별시 성북구 동소문동2가 2-4" -> "동소문동2가"
             dong = ""
-            if isinstance(address, str):
-                parts = address.split()
+            if isinstance(address_str, str):
+                parts = address_str.split()
                 if len(parts) >= 3:
                     dong = parts[2]
 
@@ -52,7 +53,6 @@ async def import_trashcans():
             # 4. Trashcan 객체 생성
             trashcan = models.Trashcan(
                 body=body,
-                address=address,
                 dong=dong,
                 geom=from_shape(Point(lon, lat), srid=4326),
                 user_id=ADMIN_USER_ID,
