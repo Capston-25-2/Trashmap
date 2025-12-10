@@ -1,83 +1,155 @@
+import os
 import asyncio
 import pandas as pd
+import glob
+import requests
 from sqlalchemy import select
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
 
-# 프로젝트 설정 import (경로에 맞게 수정 필요)
 from db.database import AsyncSessionLocal
 from model import models
 
-# [설정] 관리자 계정 ID (이 사람 이름으로 등록됩니다)
+# [설정] 관리자 ID & 카카오 API 키 (필수!)
 ADMIN_USER_ID = 3
-CSV_FILE_PATH = "../data/서울특별시_성북구_휴지통_20250901.csv"
+KAKAO_API_KEY = "여기에_카카오_REST_API_키를_넣으세요" 
 
-async def import_trashcans():
-    print("📂 데이터 가져오기 시작...")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "../data")
+
+# 컬럼 사전 (가능한 이름들을 다 넣어둡니다)
+COLUMN_MAPPING = {
+    "body": ["설치장소명", "설치위치", "장소", "도로명주소", "건물명"],
+    "address": ["소재지지번주소", "지번주소", "소재지도로명주소", "도로명주소"],
+    "lat": ["위도", "lat", "latitude"],
+    "lon": ["경도", "lon", "longitude", "경도좌표"],
+    "type": ["휴지통종류", "쓰레기통 종류", "수거쓰레기종류", "유형", "종류"],
+    # 주소 조립용 컬럼들
+    "sido": ["시도명"],
+    "sigungu": ["시군구명", "자치구명"],
+    "road": ["도로명(가로)명", "도로명"],
+    "detail": ["설치위치", "세부위치"]
+}
+
+def get_col_val(row, target_key):
+    """여러 이름 중 하나라도 있으면 그 값을 가져옴"""
+    possible_names = COLUMN_MAPPING.get(target_key, [])
+    for name in possible_names:
+        if name in row.index:
+            return row[name]
+    return None
+
+def get_coords_by_address(addr):
+    """카카오 API로 좌표 검색"""
+    if not KAKAO_API_KEY or "카카오" in KAKAO_API_KEY:
+        return None, None
     
-    # 1. CSV 파일 읽기 (인코딩 주의: utf-8 또는 cp949)
+    url = 'https://dapi.kakao.com/v2/local/search/keyword.json' # 주소+건물명 검색을 위해 keyword API 사용
+    headers = {'Authorization': f'KakaoAK {KAKAO_API_KEY}'}
     try:
-        df = pd.read_csv(CSV_FILE_PATH, encoding='utf-8')
-    except UnicodeDecodeError:
-        df = pd.read_csv(CSV_FILE_PATH, encoding='cp949')
+        res = requests.get(url, headers=headers, params={'query': addr, 'size': 1}, timeout=3)
+        if res.status_code == 200:
+            docs = res.json().get('documents')
+            if docs:
+                return float(docs[0]['y']), float(docs[0]['x'])
+    except Exception:
+        pass
+    return None, None
 
-    # 2. DB 세션 생성
+async def import_all_csv():
+    print(f"📂 '{DATA_DIR}' 폴더의 모든 데이터를 통합 처리합니다...")
+    all_files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
+    
     async with AsyncSessionLocal() as db:
-        # 카테고리 객체 미리 가져오기 (매번 조회하면 느리니까)
+        # 카테고리 로딩
         stmt = select(models.TrashcanCategory)
         result = await db.execute(stmt)
         categories_db = result.scalars().all()
-        
-        # 카테고리 맵 만들기: {'일반': <CategoryObj>, '재활용': <CategoryObj>}
         cat_map = {c.category_name: c for c in categories_db}
 
-        count = 0
-        for _, row in df.iterrows():
-            # 3. 데이터 파싱
-            body = row['설치장소명']
+        total_inserted = 0
+
+        for file_path in all_files:
+            file_name = os.path.basename(file_path)
+            print(f"\n➡️ [처리 중] {file_name}")
+
+            try:
+                df = pd.read_csv(file_path, encoding='utf-8')
+            except UnicodeDecodeError:
+                df = pd.read_csv(file_path, encoding='cp949')
             
-            # 주소 정보 (동 이름 추출용으로만 쓰고, DB엔 저장 안 함!)
-            address_str = row['소재지지번주소'] if pd.notna(row['소재지지번주소']) else row['소재지도로명주소']
-            # 동 이름 추출 (주소의 3번째 어절이 보통 동 이름)
-            # 예: "서울특별시 성북구 동소문동2가 2-4" -> "동소문동2가"
-            dong = ""
-            if isinstance(address_str, str):
-                parts = address_str.split()
-                if len(parts) >= 3:
-                    dong = parts[2]
+            file_count = 0
+            for _, row in df.iterrows():
+                # 1. 기본 정보 추출
+                body = get_col_val(row, "body")
+                type_str = get_col_val(row, "type")
+                
+                lat = get_col_val(row, "lat")
+                lon = get_col_val(row, "lon")
+                
+                # 2. 주소 문자열 만들기 (좌표 찾기용)
+                search_query = ""
+                address_val = get_col_val(row, "address")
 
-            lat = row['위도']
-            lon = row['경도']
-            type_str = row['휴지통종류'] # "일반쓰레기", "재활용쓰레기"
+                if isinstance(address_val, str):
+                    # A. 완성된 주소 컬럼이 있는 경우 (강북구)
+                    search_query = address_val
+                else:
+                    # B. 주소가 쪼개져 있는 경우 (강남구: 서울시+강남구+압구정로+청담톡스앤필)
+                    sido = get_col_val(row, "sido") or ""
+                    sigungu = get_col_val(row, "sigungu") or ""
+                    road = get_col_val(row, "road") or ""
+                    detail = get_col_val(row, "detail") or ""
+                    search_query = f"{sido} {sigungu} {road} {detail}".strip()
 
-            # 4. Trashcan 객체 생성
-            trashcan = models.Trashcan(
-                body=body,
-                dong=dong,
-                geom=from_shape(Point(lon, lat), srid=4326),
-                user_id=ADMIN_USER_ID,
-                status='approved', # 정부 데이터니까 바로 승인
-                is_verified=True,  # 인증됨
-                img_url=None       # 이미지는 없음
-            )
+                # 3. 좌표가 없으면 -> 만든 주소로 검색!
+                if pd.isna(lat) or pd.isna(lon):
+                    if search_query:
+                        # print(f"   🔍 검색: {search_query}...") 
+                        lat, lon = get_coords_by_address(search_query)
+                
+                # 그래도 좌표 못 구했으면 패스
+                if not lat or not lon:
+                    continue
 
-            # 5. 카테고리 연결
-            # CSV의 '일반쓰레기' -> DB의 '일반' 카테고리 연결
-            target_cats = []
-            if "일반" in type_str:
-                if "일반" in cat_map: target_cats.append(cat_map["일반"])
-            if "재활용" in type_str:
-                if "재활용" in cat_map: target_cats.append(cat_map["재활용"])
+                # 4. 동 이름 추출 (간단하게 검색어의 3번째 단어를 동으로 추정)
+                dong = ""
+                if search_query:
+                    parts = search_query.split()
+                    if len(parts) >= 3:
+                        dong = parts[2]
+
+                # 5. 객체 생성 및 저장
+                trashcan = models.Trashcan(
+                    body=str(body) if pd.notna(body) else search_query,
+                    dong=dong,
+                    geom=from_shape(Point(float(lon), float(lat)), srid=4326),
+                    user_id=ADMIN_USER_ID,
+                    status='approved',
+                    is_verified=True,
+                    img_url=None
+                )
+
+                # 카테고리 매핑
+                target_cats = []
+                if isinstance(type_str, str):
+                    if "일반" in type_str and "일반" in cat_map:
+                        target_cats.append(cat_map["일반"])
+                    if "재활용" in type_str and "재활용" in cat_map:
+                        target_cats.append(cat_map["재활용"])
+                
+                if not target_cats and "일반" in cat_map:
+                    target_cats.append(cat_map["일반"])
+
+                trashcan.categories = target_cats
+                db.add(trashcan)
+                file_count += 1
             
-            # 카테고리 할당 (SQLAlchemy가 알아서 연결 테이블에 넣어줌)
-            trashcan.categories = target_cats
+            print(f"   ✅ {file_count}개 등록 완료")
+            total_inserted += file_count
 
-            db.add(trashcan)
-            count += 1
-
-        # 6. 저장
         await db.commit()
-        print(f"✅ 총 {count}개의 공공데이터 쓰레기통이 성공적으로 등록되었습니다!")
+        print(f"\n🎉 모든 작업 완료! 총 {total_inserted}개의 쓰레기통이 등록되었습니다.")
 
 if __name__ == "__main__":
-    asyncio.run(import_trashcans())
+    asyncio.run(import_all_csv())
