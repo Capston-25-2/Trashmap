@@ -58,7 +58,7 @@ def detect_trashcan(bucket, key):
     response = rekognition_client.detect_labels(
         Image={'S3Object': {'Bucket': bucket, 'Name': key}},
         MaxLabels=10,
-        MinConfidence=50 # 확률이 50% 미만이면 라벨을 가져오지도 않음
+        MinConfidence=30 # 확률이 30% 미만이면 라벨을 가져오지도 않음
     )
 
     # 감지된 라벨들 중에 'Trash Can' 관련 키워드가 있는지 확인
@@ -199,7 +199,7 @@ def process_bin_image_task(trashcan_id: int, s3_file_key: str, user_lat: float, 
 
         if trashcan:
             if is_trashcan:
-                # AI가 쓰레기통이라 판단하면(확률>50%)
+                # AI가 쓰레기통이라 판단하면(확률>30%)
                 trashcan.status = 'pending_validation'
             else:
                 # AI가 쓰레기통이 아니라 판단하면
