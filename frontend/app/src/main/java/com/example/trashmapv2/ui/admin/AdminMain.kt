@@ -207,7 +207,7 @@ fun SubScreenLayout(title: String, navController: NavController, content: @Compo
     }
 }
 
-// [수정됨] 검색 다이얼로그
+//  검색 다이얼로그
 @Composable
 fun JurisdictionSearchDialog(
     onDismiss: () -> Unit,
@@ -216,8 +216,6 @@ fun JurisdictionSearchDialog(
     var query by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<KakaoSearchDocument>>(emptyList()) }
     val coroutineScope = rememberCoroutineScope()
-
-    // Toast 메시지를 띄우기 위해 Context 가져오기
     val context = LocalContext.current
 
     Dialog(onDismissRequest = onDismiss) {
@@ -235,15 +233,13 @@ fun JurisdictionSearchDialog(
                     OutlinedTextField(
                         value = query,
                         onValueChange = { query = it },
-                        placeholder = { Text("예: 화곡동") }, // 힌트 변경
+                        placeholder = { Text("예: 화곡동") },
                         modifier = Modifier.weight(1f),
                         singleLine = true
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(onClick = {
                         if (query.isBlank()) return@Button
-
-                        // 검색 API 호출
                         coroutineScope.launch {
                             try {
                                 val response = KakaoRetrofitClient.service.searchAddress(
@@ -277,13 +273,11 @@ fun JurisdictionSearchDialog(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    // ★ 핵심 수정 부분: 클릭 시 유효성 검사 ★
                                     .clickable {
                                         val address = item.addressName.trim()
                                         val addressParts = address.split(" ") // 공백으로 나눔
 
-                                        // 조건 1: 주소 덩어리가 3개 이상이어야 함 (예: 서울 강서구 화곡동 -> 3개)
-                                        // 조건 2: 끝글자가 동/읍/면/가 중 하나여야 함
+                                        // 유효성 검사 (기존 로직 유지)
                                         val isValidDong = addressParts.size >= 3 ||
                                                 address.endsWith("동") ||
                                                 address.endsWith("읍") ||
@@ -291,10 +285,13 @@ fun JurisdictionSearchDialog(
                                                 address.endsWith("가")
 
                                         if (isValidDong) {
-                                            // 통과: 선택 완료
-                                            onDongSelected(address)
+                                            // ★ [수정] 전체 주소 대신 맨 마지막 단어(동 이름)만 추출
+                                            // 예: "서울 강서구 화곡동" -> ["서울", "강서구", "화곡동"] -> "화곡동"
+                                            val realDong = addressParts.last()
+
+                                            // 추출한 동 이름만 전달 (AdminPrefs에 이것만 저장됨)
+                                            onDongSelected(realDong)
                                         } else {
-                                            // 거부: Toast 메시지 표시
                                             android.widget.Toast.makeText(
                                                 context,
                                                 "상세 행정구역(동)까지 선택해주세요.\n(예: 서울 강서구 -> X, 화곡동 -> O)",

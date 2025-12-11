@@ -133,7 +133,12 @@ fun RegisterScreen(
                 // description 전달 삭제
                 onClick = { onRegisterClick(selectedCategories) },
                 enabled = selectedCategories.isNotEmpty() && photoUri != null,
-                modifier = Modifier.fillMaxWidth().height(56.dp)
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFBC02D), // 활성화됐을 때 배경색 (진한 노랑)
+                contentColor = Color.Black,         // 활성화됐을 때 글자색 (검정)
+                disabledContainerColor = Color.LightGray, // 비활성화 배경색
+                disabledContentColor = Color.White        // 비활성화 글자색
+            )
             ) {
                 Text("등록하기", fontSize = 18.sp)
             }

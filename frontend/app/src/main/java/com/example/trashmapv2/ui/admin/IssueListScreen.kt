@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.example.trashmapv2.auth.AdminPrefs
 import com.example.trashmapv2.auth.TokenManager
 import com.example.trashmapv2.network.*
 import kotlinx.coroutines.launch
@@ -28,7 +29,7 @@ import kotlin.math.ceil
 fun IssueListScreen(navController: NavController) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val ITEMS_PER_PAGE = 5 // ★ 페이지당 5개 설정
+    val ITEMS_PER_PAGE = 5
 
     // 상태 변수
     var issueList by remember { mutableStateOf<List<IssueItem>>(emptyList()) }
@@ -39,7 +40,8 @@ fun IssueListScreen(navController: NavController) {
     var totalItems by remember { mutableIntStateOf(0) }
 
     // 검색어 (동 이름)
-    var searchQuery by remember { mutableStateOf("") }
+    val savedJurisdiction = remember { AdminPrefs.getJurisdiction(context) ?: "" }
+    var searchQuery by remember { mutableStateOf(savedJurisdiction) }
 
     // [1] 이슈 목록 불러오기
     fun loadIssues(page: Int) {

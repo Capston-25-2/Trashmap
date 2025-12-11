@@ -1,9 +1,13 @@
 package com.example.trashmapv2.ui.admin
 
+import android.content.Context
 import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -18,6 +22,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel // ★ ViewModel 사용
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.example.trashmapv2.auth.TokenManager
@@ -26,35 +33,29 @@ import kotlinx.coroutines.launch
 import kotlin.math.ceil
 
 // ==========================================
-// 1. 대기 목록 화면 (페이지네이션 적용)
+// ★ [New] PendingViewModel (상태 보존용)
 // ==========================================
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun PendingBinListScreen(navController: NavController) {
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val ITEMS_PER_PAGE = 5 // ★ 페이지당 5개
+class PendingViewModel : ViewModel() {
+    // 상태 변수
+    var binList by mutableStateOf<List<AdminBinItem>>(emptyList())
+    var isLoading by mutableStateOf(false)
+    var currentPage by mutableIntStateOf(1)
+    var totalItems by mutableIntStateOf(0)
 
-    // 데이터 상태
-    var binList by remember { mutableStateOf<List<AdminBinItem>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(false) }
-
-    // 페이지네이션 상태
-    var currentPage by remember { mutableIntStateOf(1) }
-    var totalItems by remember { mutableIntStateOf(0) }
-
-    // 대기 중인 목록 로드
-    fun loadPendingBins(page: Int) {
+    // 대기 목록 로드
+    fun loadPendingBins(context: Context, page: Int) {
         isLoading = true
-        coroutineScope.launch {
+        viewModelScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
             try {
+                currentPage = page // 페이지 저장
+                val ITEMS_PER_PAGE = 5
                 val offset = (page - 1) * ITEMS_PER_PAGE
 
                 val response = RetrofitClient.apiInstance.getAdminBinList(
                     token = "Bearer $token",
                     dong = null,
-                    status = "pending_validation", // ★ 대기 상태만 필터링
+                    status = "pending_validation",
                     offset = offset,
                     limit = ITEMS_PER_PAGE
                 )
@@ -73,28 +74,45 @@ fun PendingBinListScreen(navController: NavController) {
             }
         }
     }
+}
 
-    // 초기 로드
+// ==========================================
+// 1. 대기 목록 화면 (PendingBinListScreen)
+// ==========================================
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PendingBinListScreen(
+    navController: NavController,
+    // ★ ViewModel 주입
+    viewModel: PendingViewModel = viewModel()
+) {
+    val context = LocalContext.current
+    val ITEMS_PER_PAGE = 5
+
+    // 화면 진입 시 초기 로드
     LaunchedEffect(Unit) {
-        loadPendingBins(currentPage)
+        // ★ 데이터가 없을 때만 로드 (뒤로가기 시 상태 유지)
+        if (viewModel.binList.isEmpty()) {
+            viewModel.loadPendingBins(context, 1)
+        }
     }
 
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .systemBarsPadding(), // ★ 시스템 바 가림 방지
+            .systemBarsPadding(),
         topBar = {
             TopAppBar(title = { Text("등록 허가 대기") })
         },
         bottomBar = {
-            // ★ 페이지네이션 바
-            val totalPages = if (totalItems == 0) 1 else ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()
-            PaginationBar(
-                currentPage = currentPage,
+            val totalPages = if (viewModel.totalItems == 0) 1 else ceil(viewModel.totalItems.toDouble() / ITEMS_PER_PAGE).toInt()
+
+            // 이름 충돌 방지: PendingPaginationBar
+            PendingPaginationBar(
+                currentPage = viewModel.currentPage,
                 totalPages = totalPages,
                 onPageChange = { newPage ->
-                    currentPage = newPage
-                    loadPendingBins(newPage)
+                    viewModel.loadPendingBins(context, newPage)
                 }
             )
         }
@@ -107,16 +125,16 @@ fun PendingBinListScreen(navController: NavController) {
         ) {
             // 상단 정보 텍스트
             Text(
-                text = "대기 요청: ${totalItems}건 (페이지 $currentPage / ${ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()})",
+                text = "대기 요청: ${viewModel.totalItems}건 (페이지 ${viewModel.currentPage} / ${ceil(viewModel.totalItems.toDouble() / ITEMS_PER_PAGE).toInt()})",
                 color = Color.Gray,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
 
-            if (isLoading) {
+            if (viewModel.isLoading) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
-            } else if (binList.isEmpty()) {
+            } else if (viewModel.binList.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("대기 중인 요청이 없습니다.", color = Color.Gray)
                 }
@@ -125,9 +143,9 @@ fun PendingBinListScreen(navController: NavController) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(binList) { bin ->
+                    items(viewModel.binList) { bin ->
                         AdminBinItemCard(bin) {
-                            // 클릭 시 상세(허가) 화면으로 이동
+                            // 클릭 시 상세 화면 이동
                             navController.navigate("pending_detail/${bin.trashcanId}")
                         }
                     }
@@ -138,7 +156,77 @@ fun PendingBinListScreen(navController: NavController) {
 }
 
 // ==========================================
-// 2. 상세 심사 화면 (사진 확인 + 승인/거절)
+// ★ [수정] 페이지네이션 (이름 충돌 방지: Pending...)
+// ==========================================
+@Composable
+fun PendingPaginationBar(
+    currentPage: Int,
+    totalPages: Int,
+    onPageChange: (Int) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White)
+            .padding(8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            onClick = { onPageChange(currentPage - 1) },
+            enabled = currentPage > 1
+        ) {
+            Text("<", fontWeight = FontWeight.Bold)
+        }
+
+        val startPage = (currentPage - 2).coerceAtLeast(1)
+        val endPage = (startPage + 4).coerceAtMost(totalPages)
+        val adjustedStartPage = (endPage - 4).coerceAtLeast(1)
+
+        for (page in adjustedStartPage..endPage) {
+            PendingPageButton(
+                page = page,
+                isSelected = page == currentPage,
+                onClick = { onPageChange(page) }
+            )
+        }
+
+        IconButton(
+            onClick = { onPageChange(currentPage + 1) },
+            enabled = currentPage < totalPages
+        ) {
+            Text(">", fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun PendingPageButton(
+    page: Int,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val backgroundColor = if (isSelected) Color.DarkGray else Color.Transparent
+    val contentColor = if (isSelected) Color.White else Color.Black
+
+    Box(
+        modifier = Modifier
+            .padding(horizontal = 4.dp)
+            .size(32.dp)
+            .background(color = backgroundColor, shape = RoundedCornerShape(4.dp))
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = page.toString(),
+            color = contentColor,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+        )
+    }
+}
+
+// ==========================================
+// 2. 상세 심사 화면 (기존 유지)
 // ==========================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -148,7 +236,6 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
     var binDetail by remember { mutableStateOf<BinDetail?>(null) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // 상세 정보 로드
     LaunchedEffect(binId) {
         val token = TokenManager.getAuthToken(context) ?: return@LaunchedEffect
         try {
@@ -165,14 +252,11 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
         }
     }
 
-    // 승인/거절 처리 함수
     fun processBin(status: String) {
         coroutineScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
             try {
-                // status: "approved" (승인) or "rejected" (거절)
                 val updateRequest = BinStatusUpdate(status = status)
-
                 val response = RetrofitClient.apiInstance.updateBinStatus(
                     token = "Bearer $token",
                     binId = binId,
@@ -182,7 +266,7 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
                 if (response.isSuccessful) {
                     val msg = if (status == "approved") "허가 완료" else "거절 완료"
                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                    navController.popBackStack() // 목록으로 복귀
+                    navController.popBackStack()
                 } else {
                     Toast.makeText(context, "처리 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
                 }
@@ -195,7 +279,7 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .systemBarsPadding(), // ★ 시스템 바 패딩 적용
+            .systemBarsPadding(),
         topBar = {
             TopAppBar(
                 title = { Text("등록 심사") },
@@ -223,11 +307,10 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
                     .fillMaxSize()
                     .padding(16.dp)
             ) {
-                // [1] 사진 영역 (가장 중요하므로 크게 배치)
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(350.dp), // 사진 높이 넉넉하게
+                        .height(350.dp),
                     elevation = CardDefaults.cardElevation(4.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White)
                 ) {
@@ -247,11 +330,9 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // [2] 정보 표시 영역
                 Text("위치 정보", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // 주소 (body가 없으면 dong이라도 표시)
                 Text(
                     text = bin.body ?: "${bin.author.username}님이 등록한 위치",
                     fontSize = 16.sp
@@ -263,17 +344,15 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
                 Text("제보자", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Text(bin.author.username, fontSize = 16.sp, color = Color.Blue)
 
-                Spacer(modifier = Modifier.weight(1f)) // ★ 버튼을 화면 맨 아래로 밀어내기
+                Spacer(modifier = Modifier.weight(1f))
 
-                // [3] 하단 버튼 (거절 / 허가)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // 거절 버튼
                     Button(
                         onClick = { processBin("rejected") },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935)), // Red
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935)),
                         modifier = Modifier
                             .weight(1f)
                             .height(56.dp),
@@ -284,10 +363,9 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
                         Text("거절하기", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    // 허가 버튼
                     Button(
                         onClick = { processBin("approved") },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF43A047)), // Green
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF43A047)),
                         modifier = Modifier
                             .weight(1f)
                             .height(56.dp),

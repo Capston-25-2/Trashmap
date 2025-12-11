@@ -95,7 +95,8 @@ dependencies {
     implementation("androidx.compose.material3:material3") // Material 3 (Scaffold, NavigationBar 등)
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation(libs.androidx.foundation)
-    implementation(libs.androidx.ui.text) // 미리보기용
+    implementation(libs.androidx.ui.text)
+    implementation(libs.androidx.lifecycle.viewmodel.ktx) // 미리보기용
     debugImplementation("androidx.compose.ui:ui-tooling")
     // --- ⬆️ Jetpack Compose 핵심 의존성 추가 ⬆️ ---
 

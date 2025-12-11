@@ -1,5 +1,6 @@
 package com.example.trashmapv2.ui.admin
 
+import android.content.Context
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -26,10 +27,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.example.trashmapv2.BuildConfig
 import com.example.trashmapv2.R
+import com.example.trashmapv2.auth.AdminPrefs
 import com.example.trashmapv2.auth.TokenManager
 import com.example.trashmapv2.network.AdminBinItem
 import com.example.trashmapv2.network.BinDetail
@@ -44,37 +49,29 @@ enum class SearchMode { REGION, USER }
 // ==========================================
 // [Screen 1] 쓰레기통 목록 및 검색 화면
 // ==========================================
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun TrashManagementScreen(navController: NavController) {
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val ITEMS_PER_PAGE = 5 // ★ 페이지당 5개 설정
+class TrashViewModel : ViewModel() {
+    // 상태 변수들을 ViewModel로 이동
+    var binList by mutableStateOf<List<AdminBinItem>>(emptyList())
+    var isLoading by mutableStateOf(false)
 
-    // 상태 변수
-    var binList by remember { mutableStateOf<List<AdminBinItem>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(false) }
+    var currentPage by mutableIntStateOf(1)
+    var totalItems by mutableIntStateOf(0)
 
-    // 페이지네이션 상태
-    var currentPage by remember { mutableIntStateOf(1) }
-    var totalItems by remember { mutableIntStateOf(0) }
+    var searchMode by mutableStateOf(SearchMode.REGION)
+    var searchQuery by mutableStateOf("")
+    var searchResults by mutableStateOf<List<String>>(emptyList()) // 자동완성 결과
+    var isSearching by mutableStateOf(false) // 드롭다운 노출 여부
 
-    // 검색 관련
-    var searchMode by remember { mutableStateOf(SearchMode.REGION) }
-    var searchQuery by remember { mutableStateOf("") }
-    var searchResults by remember { mutableStateOf<List<String>>(emptyList()) } // 주소 자동완성용
-    var isSearching by remember { mutableStateOf(false) } // 드롭다운 노출 여부
-
-    // --- API: 목록 로드 함수 ---
-    fun loadBins(page: Int) {
+    // API: 쓰레기통 목록 로드
+    fun loadBins(context: Context, page: Int) {
         isLoading = true
-        coroutineScope.launch {
+        viewModelScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
             try {
+                currentPage = page
+                val ITEMS_PER_PAGE = 5
                 val offset = (page - 1) * ITEMS_PER_PAGE
 
-                // 모드에 따라 파라미터 분기
-                // 검색어가 비어있지 않을 때만 파라미터 전달
                 val finalQuery = if (searchQuery.isBlank()) null else searchQuery
                 val dongParam = if (searchMode == SearchMode.REGION) finalQuery else null
                 val authorParam = if (searchMode == SearchMode.USER) finalQuery else null
@@ -90,8 +87,6 @@ fun TrashManagementScreen(navController: NavController) {
                 if (response.isSuccessful) {
                     val result = response.body()
                     binList = result?.data ?: emptyList()
-                    // ★ API 응답에 totalCount가 포함되어 있다고 가정합니다.
-                    // 만약 AdminBinListResponse 클래스에 totalCount가 없다면 추가해야 합니다.
                     totalItems = result?.totalCount ?: 0
                 } else {
                     Log.e("API_ERROR", "Error: ${response.code()}")
@@ -106,23 +101,18 @@ fun TrashManagementScreen(navController: NavController) {
         }
     }
 
-    // 화면 진입 시 초기 로드
-    LaunchedEffect(Unit) {
-        loadBins(currentPage)
-    }
-
-    // 검색 실행 함수
-    fun onSearch() {
+    // 검색 버튼 클릭
+    fun onSearch(context: Context) {
         currentPage = 1
-        loadBins(1)
+        loadBins(context, 1)
         isSearching = false
     }
 
-    // --- API: 카카오 주소 검색 ---
+    // API: 주소 검색 (자동완성)
     fun searchAddress(query: String) {
         if (query.length < 2 || searchMode == SearchMode.USER) return
 
-        coroutineScope.launch {
+        viewModelScope.launch {
             try {
                 val response = KakaoRetrofitClient.service.searchAddress(
                     apiKey = "KakaoAK ${BuildConfig.KAKAO_REST_API_KEY}",
@@ -138,74 +128,100 @@ fun TrashManagementScreen(navController: NavController) {
             }
         }
     }
+}
+
+// ==========================================
+// [Screen 1] 쓰레기통 목록 및 검색 화면
+// ==========================================
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TrashManagementScreen(
+    navController: NavController,
+    // ★ ViewModel 주입
+    viewModel: TrashViewModel = viewModel()
+) {
+    val context = LocalContext.current
+    val ITEMS_PER_PAGE = 5
+
+    // 관할 구역 정보 가져오기 (초기값용)
+    val savedJurisdiction = remember { AdminPrefs.getJurisdiction(context) ?: "" }
+
+    // 화면 진입 시 초기 로드
+    LaunchedEffect(Unit) {
+        // ★ 리스트가 비어있을 때만(처음 진입 시) 로드 -> 뒤로가기 시 상태 유지됨
+        if (viewModel.binList.isEmpty()) {
+            // 초기 검색어가 비어있다면 저장된 관할 구역으로 설정
+            if (viewModel.searchQuery.isBlank()) {
+                viewModel.searchQuery = savedJurisdiction
+            }
+            viewModel.loadBins(context, 1)
+        }
+    }
 
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .systemBarsPadding(), // ★ 시스템 바 가림 방지
+            .systemBarsPadding(),
         topBar = {
             TopAppBar(title = { Text("쓰레기통 관리") })
         },
         bottomBar = {
-            // ★ 페이지네이션 바 추가
-            val totalPages = if (totalItems == 0) 1 else ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()
-            PaginationBar(
-                currentPage = currentPage,
+            val totalPages = if (viewModel.totalItems == 0) 1 else ceil(viewModel.totalItems.toDouble() / ITEMS_PER_PAGE).toInt()
+
+            TrashPaginationBar(
+                currentPage = viewModel.currentPage, // ViewModel 값
                 totalPages = totalPages,
                 onPageChange = { newPage ->
-                    currentPage = newPage
-                    loadBins(newPage)
+                    viewModel.loadBins(context, newPage) // ViewModel 함수
                 }
             )
         }
     ) { paddingValues ->
-        // ★ Column으로 전체 감싸고 paddingValues 적용
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .padding(16.dp)
         ) {
-            // [1] 검색 모드 선택 (라디오 버튼)
+            // [1] 검색 모드 선택
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(
-                    selected = searchMode == SearchMode.REGION,
+                    selected = viewModel.searchMode == SearchMode.REGION,
                     onClick = {
-                        searchMode = SearchMode.REGION
-                        searchQuery = ""
-                        // 모드 변경 시 초기화
+                        viewModel.searchMode = SearchMode.REGION
+                        viewModel.searchQuery = "" // 모드 변경 시 초기화
                     }
                 )
-                Text("지역(동) 검색", modifier = Modifier.clickable { searchMode = SearchMode.REGION })
+                Text("지역(동) 검색", modifier = Modifier.clickable { viewModel.searchMode = SearchMode.REGION })
                 Spacer(modifier = Modifier.width(16.dp))
                 RadioButton(
-                    selected = searchMode == SearchMode.USER,
+                    selected = viewModel.searchMode == SearchMode.USER,
                     onClick = {
-                        searchMode = SearchMode.USER
-                        searchQuery = ""
+                        viewModel.searchMode = SearchMode.USER
+                        viewModel.searchQuery = ""
                     }
                 )
-                Text("유저 이름 검색", modifier = Modifier.clickable { searchMode = SearchMode.USER })
+                Text("유저 이름 검색", modifier = Modifier.clickable { viewModel.searchMode = SearchMode.USER })
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // [2] 검색창 & 자동완성 드롭다운
+            // [2] 검색창 & 자동완성
             ExposedDropdownMenuBox(
-                expanded = isSearching && searchResults.isNotEmpty() && searchMode == SearchMode.REGION,
-                onExpandedChange = { isSearching = it }
+                expanded = viewModel.isSearching && viewModel.searchResults.isNotEmpty() && viewModel.searchMode == SearchMode.REGION,
+                onExpandedChange = { viewModel.isSearching = it }
             ) {
                 OutlinedTextField(
-                    value = searchQuery,
+                    value = viewModel.searchQuery,
                     onValueChange = {
-                        searchQuery = it
-                        if (searchMode == SearchMode.REGION) searchAddress(it)
+                        viewModel.searchQuery = it
+                        if (viewModel.searchMode == SearchMode.REGION) viewModel.searchAddress(it)
                     },
                     label = {
-                        Text(if (searchMode == SearchMode.REGION) "동 이름 (예: 화곡동)" else "유저 이름")
+                        Text(if (viewModel.searchMode == SearchMode.REGION) "동 이름 (예: 화곡동)" else "유저 이름")
                     },
                     trailingIcon = {
-                        IconButton(onClick = { onSearch() }) {
+                        IconButton(onClick = { viewModel.onSearch(context) }) {
                             Icon(Icons.Default.Search, contentDescription = "검색")
                         }
                     },
@@ -213,21 +229,19 @@ fun TrashManagementScreen(navController: NavController) {
                     singleLine = true
                 )
 
-                // 자동완성 목록 (지역 검색일 때만)
-                if (searchMode == SearchMode.REGION && searchResults.isNotEmpty()) {
+                if (viewModel.searchMode == SearchMode.REGION && viewModel.searchResults.isNotEmpty()) {
                     ExposedDropdownMenu(
-                        expanded = isSearching,
-                        onDismissRequest = { isSearching = false }
+                        expanded = viewModel.isSearching,
+                        onDismissRequest = { viewModel.isSearching = false }
                     ) {
-                        searchResults.forEach { address ->
+                        viewModel.searchResults.forEach { address ->
                             DropdownMenuItem(
                                 text = { Text(address) },
                                 onClick = {
                                     val trimmed = address.trim()
-                                    // "동" 단위 파싱 로직
                                     val realDong = trimmed.split(" ").last()
-                                    searchQuery = realDong
-                                    onSearch() // 선택 즉시 검색 실행
+                                    viewModel.searchQuery = realDong
+                                    viewModel.onSearch(context) // 선택 즉시 검색
                                 }
                             )
                         }
@@ -238,19 +252,21 @@ fun TrashManagementScreen(navController: NavController) {
             Spacer(modifier = Modifier.height(16.dp))
 
             // [3] 결과 목록
-            if (isLoading) {
+            if (viewModel.isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
             } else {
+                val titleText = if (viewModel.searchQuery.isNotBlank()) "['${viewModel.searchQuery}' 검색 결과]" else "[전체 목록]"
                 Text(
-                    text = "총 ${totalItems}건 (페이지 $currentPage / ${ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()})",
+                    text = "$titleText ${viewModel.totalItems}건 (페이지 ${viewModel.currentPage} / ${ceil(viewModel.totalItems.toDouble() / ITEMS_PER_PAGE).toInt()})",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color.Gray,
+                    color = Color.Black,
+                    fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                if (binList.isEmpty()) {
+                if (viewModel.binList.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("검색 결과가 없습니다.")
                     }
@@ -259,7 +275,7 @@ fun TrashManagementScreen(navController: NavController) {
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        items(binList) { bin ->
+                        items(viewModel.binList) { bin ->
                             AdminBinItemCard(bin) {
                                 navController.navigate("trash_detail/${bin.trashcanId}")
                             }
@@ -271,6 +287,75 @@ fun TrashManagementScreen(navController: NavController) {
     }
 }
 
+// ==========================================
+// ★ [수정] 페이지네이션 (이름 충돌 방지: Trash...)
+// ==========================================
+@Composable
+fun TrashPaginationBar(
+    currentPage: Int,
+    totalPages: Int,
+    onPageChange: (Int) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White)
+            .padding(8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            onClick = { onPageChange(currentPage - 1) },
+            enabled = currentPage > 1
+        ) {
+            Text("<", fontWeight = FontWeight.Bold)
+        }
+
+        val startPage = (currentPage - 2).coerceAtLeast(1)
+        val endPage = (startPage + 4).coerceAtMost(totalPages)
+        val adjustedStartPage = (endPage - 4).coerceAtLeast(1)
+
+        for (page in adjustedStartPage..endPage) {
+            TrashPageButton(
+                page = page,
+                isSelected = page == currentPage,
+                onClick = { onPageChange(page) }
+            )
+        }
+
+        IconButton(
+            onClick = { onPageChange(currentPage + 1) },
+            enabled = currentPage < totalPages
+        ) {
+            Text(">", fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun TrashPageButton(
+    page: Int,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val backgroundColor = if (isSelected) Color.DarkGray else Color.Transparent
+    val contentColor = if (isSelected) Color.White else Color.Black
+
+    Box(
+        modifier = Modifier
+            .padding(horizontal = 4.dp)
+            .size(32.dp)
+            .background(color = backgroundColor, shape = RoundedCornerShape(4.dp))
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = page.toString(),
+            color = contentColor,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+        )
+    }
+}
 
 
 // ==========================================
@@ -377,7 +462,7 @@ fun TrashBinDetailScreen(navController: NavController, binId: Int) {
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .systemBarsPadding(), // ★ 상세 화면도 시스템 바 패딩 적용
+            .systemBarsPadding(),
         topBar = {
             TopAppBar(
                 title = { Text("상세 정보") },

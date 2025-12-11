@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.example.trashmapv2.auth.AdminPrefs
 import com.example.trashmapv2.auth.TokenManager
 import com.example.trashmapv2.network.*
 import kotlinx.coroutines.launch
@@ -26,7 +27,7 @@ import kotlin.math.ceil
 fun SuggestionListScreen(navController: NavController) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val ITEMS_PER_PAGE = 5 // ★ 페이지당 5개 설정
+    val ITEMS_PER_PAGE = 5
 
     // 상태 변수
     var suggestList by remember { mutableStateOf<List<SuggestItem>>(emptyList()) }
@@ -37,7 +38,8 @@ fun SuggestionListScreen(navController: NavController) {
     var totalItems by remember { mutableIntStateOf(0) }
 
     // 검색어 (동 이름)
-    var searchQuery by remember { mutableStateOf("") }
+    val savedJurisdiction = remember { AdminPrefs.getJurisdiction(context) ?: "" }
+    var searchQuery by remember { mutableStateOf(savedJurisdiction) }
 
     // [1] 건의 목록 로드
     fun loadSuggestions(page: Int) {
@@ -248,15 +250,9 @@ fun SuggestItemCard(item: SuggestItem) {
                 fontWeight = FontWeight.Bold
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
 
-            Text(
-                text = "좌표: ${item.lat}, ${item.lon}",
-                fontSize = 14.sp,
-                color = Color.DarkGray
-            )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // 상태 표시
             val statusText = when(item.status) {

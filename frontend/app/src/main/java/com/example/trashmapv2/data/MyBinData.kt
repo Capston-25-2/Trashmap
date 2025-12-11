@@ -3,7 +3,7 @@ package com.example.trashmapv2.data
 import com.google.gson.annotations.SerializedName
 
 data class MyBinsResponse(
-    @SerializedName("total_bins") val totalBins: Int,
+    @SerializedName("pagination") val totalBins: Int,
     @SerializedName("bins") val bins: List<MyBinItem>
 )
 

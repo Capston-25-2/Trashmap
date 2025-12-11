@@ -82,7 +82,7 @@ class ProfileActivity : AppCompatActivity() {
                             uiState = uiState.copy(
                                 nickname = myInfo.username,
                                 level = myInfo.level,
-                                exp = myInfo.exp,
+                                exp = myInfo.exp % 20,
                                 role = myInfo.role // [추가] 서버에서 받은 role 저장
                             )
                             Log.d("Profile", "유저 권한: ${myInfo.role}")
@@ -325,37 +325,15 @@ fun RowScope.ProfileTabButton(
 
 @Composable
 fun DashboardContent() {
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
+            .height(200.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(Color.White)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text("대시보드를 통해 등수를 확인해 보세요", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-        repeat(3) {
-            RankingItem(rank = it + 1, level = 10 - it, bins = 20 - it * 2, missions = 5)
-        }
-    }
+    )
 }
 
-@Composable
-fun RankingItem(rank: Int, level: Int, bins: Int, missions: Int) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Text("$rank", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(Color.LightGray))
-        Text("LV:$level")
-        Column {
-            Text("등록한 쓰레기통 : $bins", fontSize = 12.sp)
-            Text("해결한 미션 : $missions", fontSize = 12.sp)
-        }
-    }
-}
 
 @Composable
 fun LogoutButtons(onLogoutClick: () -> Unit, onWithdrawClick: () -> Unit) {

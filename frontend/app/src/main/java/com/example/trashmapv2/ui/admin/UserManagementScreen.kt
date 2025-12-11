@@ -1,5 +1,6 @@
 package com.example.trashmapv2.ui.admin
 
+import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,41 +20,35 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
 import com.example.trashmapv2.auth.TokenManager
 import com.example.trashmapv2.network.*
 import kotlinx.coroutines.launch
 import kotlin.math.ceil
+import androidx.lifecycle.viewmodel.compose.viewModel
 
-// ==========================================
-// [Screen 1] 유저 목록 화면 (UserManagementScreen)
-// AdminMain의 AdminRoutes.USER와 연결됨
-// ==========================================
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun UserManagementScreen(navController: NavController) {
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val ITEMS_PER_PAGE = 5
-
-    // 상태 변수
-    var userList by remember { mutableStateOf<List<AdminUser>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(false) }
-
-    var currentPage by remember { mutableIntStateOf(1) } // 현재 페이지 (1부터 시작)
-    var totalItems by remember { mutableIntStateOf(0) }  // 전체 아이템 개수 (total_count)
-
-    // 검색어 상태
-    var searchQuery by remember { mutableStateOf("") }
+class UserViewModel : ViewModel() {
+    // 상태 변수들을 ViewModel 내부로 이동
+    var userList by mutableStateOf<List<AdminUser>>(emptyList())
+    var isLoading by mutableStateOf(false)
+    var currentPage by mutableIntStateOf(1)
+    var totalItems by mutableIntStateOf(0)
+    var searchQuery by mutableStateOf("")
 
     // API 호출 함수
-    fun loadUsers(page: Int) {
+    fun loadUsers(context: Context, page: Int) {
         isLoading = true
-        coroutineScope.launch {
+        // ViewModel에서는 viewModelScope 사용
+        viewModelScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
             try {
+                // 페이지 저장
+                currentPage = page
+
+                val ITEMS_PER_PAGE = 5
                 val offset = (page - 1) * ITEMS_PER_PAGE
-                // 검색어가 비어있으면 null로 처리
                 val usernameParam = if (searchQuery.isBlank()) null else searchQuery
 
                 val response = RetrofitClient.apiInstance.getAdminUserList(
@@ -68,8 +63,7 @@ fun UserManagementScreen(navController: NavController) {
                     userList = response.body()?.data ?: emptyList()
                     totalItems = result?.totalCount ?: 0
                 } else {
-                    Toast.makeText(context, "목록 로드 실패: ${response.code()}", Toast.LENGTH_SHORT)
-                        .show()
+                    Toast.makeText(context, "목록 로드 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 Toast.makeText(context, "오류: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -79,14 +73,36 @@ fun UserManagementScreen(navController: NavController) {
         }
     }
 
+    // 검색 실행
+    fun onSearch(context: Context) {
+        currentPage = 1
+        loadUsers(context, 1)
+    }
+}
+
+// ==========================================
+// [Screen 1] 유저 목록 화면 (UserManagementScreen)
+// AdminMain의 AdminRoutes.USER와 연결됨
+// ==========================================
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun UserManagementScreen(
+    navController: NavController,
+    // ★ ViewModel 주입 (여기서 데이터를 관리함)
+    viewModel: UserViewModel = viewModel()
+) {
+    val context = LocalContext.current
+    val ITEMS_PER_PAGE = 5
+
+    // ★ [핵심] 기존의 var userList by remember... 등은 모두 삭제했습니다.
+    // 대신 viewModel.userList 처럼 접근합니다.
+
     // 화면 진입 시 초기 로드
     LaunchedEffect(Unit) {
-        loadUsers(currentPage)
-    }
-
-    fun onSearch() {
-        currentPage = 1
-        loadUsers(1)
+        // ★ 이미 데이터가 있다면(상세 갔다가 돌아온 경우) 로드하지 않음 -> 상태 유지됨
+        if (viewModel.userList.isEmpty()) {
+            viewModel.loadUsers(context, 1)
+        }
     }
 
     Scaffold(
@@ -97,33 +113,31 @@ fun UserManagementScreen(navController: NavController) {
             TopAppBar(title = { Text("유저 관리") })
         },
         bottomBar = {
-            val totalPages =
-                if (totalItems == 0) 1 else ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()
+            // 전체 페이지 수 계산
+            val totalPages = if (viewModel.totalItems == 0) 1 else ceil(viewModel.totalItems.toDouble() / ITEMS_PER_PAGE).toInt()
+
             PaginationBar(
-                currentPage = currentPage,
+                currentPage = viewModel.currentPage, // ViewModel 값 사용
                 totalPages = totalPages,
                 onPageChange = { newPage ->
-                    currentPage = newPage
-                    loadUsers(newPage)
+                    viewModel.loadUsers(context, newPage) // ViewModel 함수 호출
                 }
             )
         }
-    ) { innerPadding -> // 1. 여기서 padding 값을 받습니다 (이름을 innerPadding으로 명시하면 더 좋습니다)
-
-        // 2. Column을 만들고 padding을 적용합니다.
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding) // ★ 핵심 수정: TopBar와 BottomBar 높이만큼 여백 확보
-                .padding(16.dp)        // 화면 좌우/내부 여백 추가 (선택사항)
+                .padding(innerPadding)
+                .padding(16.dp)
         ) {
             // [검색창]
             OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
+                value = viewModel.searchQuery, // ViewModel 값 사용
+                onValueChange = { viewModel.searchQuery = it }, // 입력 시 ViewModel 값 업데이트
                 label = { Text("유저 닉네임 검색") },
                 trailingIcon = {
-                    IconButton(onClick = { onSearch() }) {
+                    IconButton(onClick = { viewModel.onSearch(context) }) { // ViewModel 함수 호출
                         Icon(Icons.Default.Search, contentDescription = "검색")
                     }
                 },
@@ -134,18 +148,18 @@ fun UserManagementScreen(navController: NavController) {
             Spacer(modifier = Modifier.height(16.dp))
 
             // [리스트 영역]
-            if (isLoading) {
+            if (viewModel.isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
             } else {
                 Text(
-                    text = "총 ${totalItems}명 (페이지 $currentPage / ${ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()})",
+                    text = "총 ${viewModel.totalItems}명 (페이지 ${viewModel.currentPage} / ${ceil(viewModel.totalItems.toDouble() / ITEMS_PER_PAGE).toInt()})",
                     color = Color.Gray,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                if (userList.isEmpty()) {
+                if (viewModel.userList.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("데이터가 없습니다.")
                     }
@@ -154,8 +168,9 @@ fun UserManagementScreen(navController: NavController) {
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        items(userList) { user ->
+                        items(viewModel.userList) { user ->
                             UserItemCard(user) {
+                                // 상세 화면 이동
                                 navController.navigate("user_detail/${user.userId}")
                             }
                         }
@@ -166,9 +181,6 @@ fun UserManagementScreen(navController: NavController) {
     }
 }
 
-// ==========================================
-// ★ [New] 페이지네이션 컴포넌트
-// ==========================================
 @Composable
 fun PaginationBar(
     currentPage: Int,

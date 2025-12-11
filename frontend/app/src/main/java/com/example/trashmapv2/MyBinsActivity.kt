@@ -3,10 +3,10 @@ package com.example.trashmapv2
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -31,17 +31,17 @@ import com.example.trashmapv2.auth.TokenManager
 import com.example.trashmapv2.data.MyBinItem
 import com.example.trashmapv2.network.RetrofitClient
 import com.example.trashmapv2.ui.theme.TrashMapAppV2Theme
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
-import java.util.Locale
+import kotlinx.coroutines.launch
+import kotlin.math.ceil
 
 /**
- * "내 쓰레기통" 화면 (API 연동 버전)
+ * "내 쓰레기통" 화면 (페이지네이션 적용 버전)
  */
 class MyBinsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // 시스템 바 영역까지 확장 (Scaffold의 systemBarsPadding으로 제어)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
@@ -54,110 +54,152 @@ class MyBinsActivity : AppCompatActivity() {
 
 @Composable
 fun MyBinsScreen(onBackClick: () -> Unit) {
+    val context = LocalContext.current
+    val ITEMS_PER_PAGE = 6
+
     // --- 상태 변수 ---
     var binList by remember { mutableStateOf<List<MyBinItem>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    // 페이지네이션 상태
+    var currentPage by remember { mutableIntStateOf(1) }
     var totalCount by remember { mutableIntStateOf(0) }
 
-    val context = LocalContext.current
+    // Compose 범위 내에서 코루틴 실행을 위한 Scope
+    val coroutineScope = rememberCoroutineScope()
 
-    // --- API 호출 (화면 켜질 때 1회) ---
-    LaunchedEffect(Unit) {
-        val token = TokenManager.getAuthToken(context)
-        if (token == null) {
-            Toast.makeText(context, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
-            isLoading = false
-            return@LaunchedEffect
-        }
+    // 실제 로드 로직 (코루틴)
+    fun fetchBins(page: Int) {
+        isLoading = true
 
-        try {
-            val response = RetrofitClient.apiInstance.getMyBins("Bearer $token")
-            if (response.isSuccessful) {
-                val result = response.body()
-                binList = result?.bins ?: emptyList()
-                totalCount = result?.totalBins ?: 0
-            } else {
-                Log.e("MyBins", "로드 실패: ${response.code()}")
+        coroutineScope.launch {
+            val token = TokenManager.getAuthToken(context)
+            if (token == null) {
+                Toast.makeText(context, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
+                isLoading = false
+                return@launch
             }
-        } catch (e: Exception) {
-            Log.e("MyBins", "통신 에러", e)
-        } finally {
-            isLoading = false
+
+            try {
+                // ★ [수정 1] offset 변수 사용 (경고 해결됨)
+                val offset = (page - 1) * ITEMS_PER_PAGE
+
+                // ★ [수정 2] API에 offset과 limit 전달
+                val response = RetrofitClient.apiInstance.getMyBins(
+                    token = "Bearer $token",
+                    offset = offset,
+                    limit = ITEMS_PER_PAGE
+                )
+
+                if (response.isSuccessful) {
+                    val result = response.body()
+
+                    // ★ [수정 3] 서버가 이미 잘라서 보내주므로 subList 로직 삭제하고 바로 대입
+                    binList = result?.bins ?: emptyList()
+                    totalCount = result?.totalBins ?: 0
+
+                } else {
+                    Log.e("MyBins", "로드 실패: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                Log.e("MyBins", "통신 에러", e)
+            } finally {
+                isLoading = false
+            }
         }
     }
 
-    // --- UI 레이아웃 (기존 디자인 유지) ---
-    Column(
+    // 초기 로드
+    LaunchedEffect(Unit) {
+        fetchBins(currentPage)
+    }
+
+    // --- 화면 구성 ---
+    Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.systemBars)
-            .background(MaterialTheme.colorScheme.primary) // 기존 배경색
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // (1) 타이틀 바 (뒤로가기 버튼 + 아이콘 + 제목)
-        Row(
+            .systemBarsPadding(), // 시스템 바 가림 방지
+        containerColor = MaterialTheme.colorScheme.primary, // 배경색 유지
+        bottomBar = {
+            // ★ 페이지네이션 바
+            val totalPages = if (totalCount == 0) 1 else ceil(totalCount.toDouble() / ITEMS_PER_PAGE).toInt()
+            PaginationBarV2(
+                currentPage = currentPage,
+                totalPages = totalPages,
+                onPageChange = { newPage ->
+                    currentPage = newPage
+                    fetchBins(newPage)
+                }
+            )
+        }
+    ) { padding ->
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(padding)
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
+                .padding(top = 16.dp), // 상단 여백
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 뒤로가기 버튼 추가 (편의성)
-            IconButton(onClick = onBackClick) {
+            // (1) 타이틀 바
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBackClick) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "뒤로가기",
+                        tint = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
                 Icon(
-                    imageVector = Icons.Default.ArrowBack,
-                    contentDescription = "뒤로가기",
-                    tint = MaterialTheme.colorScheme.onPrimary
+                    painter = painterResource(id = R.drawable.ic_profile_bins_placeholder),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(32.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "내 쓰레기통",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // 기존 아이콘
-            Icon(
-                painter = painterResource(id = R.drawable.ic_profile_bins_placeholder),
-                contentDescription = "내 쓰레기통",
-                tint = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.size(32.dp)
-            )
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Text(
-                text = "내 쓰레기통",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimary
-            )
-        }
-
-        // (2) "흰색 박스" 영역
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f) // 남은 공간 채우기
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color.White),
-            contentAlignment = Alignment.TopCenter
-        ) {
-            if (isLoading) {
-                // 로딩 중
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                }
-            } else if (binList.isEmpty()) {
-                // 데이터 없음
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("등록한 쓰레기통이 없습니다.", color = Color.Gray)
-                }
-            } else {
-                // 데이터 있음 -> 리스트 표시
-                LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(binList) { bin ->
-                        MyBinItemRow(bin)
+            // (2) 흰색 박스 영역 (리스트)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f) // 남은 공간 모두 차지
+                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                    .background(Color.White),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                if (isLoading) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    }
+                } else if (binList.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("등록한 쓰레기통이 없습니다.", color = Color.Gray)
+                    }
+                } else {
+                    Column {
+                        LazyColumn(
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(binList) { bin ->
+                                MyBinItemRow(bin)
+                            }
+                            // 하단 여백 확보
+                            item { Spacer(modifier = Modifier.height(16.dp)) }
+                        }
                     }
                 }
             }
@@ -165,13 +207,86 @@ fun MyBinsScreen(onBackClick: () -> Unit) {
     }
 }
 
-// 개별 리스트 아이템 디자인 (카드 형태)
+// ==========================================
+// 페이지네이션 컴포넌트 (이 파일 전용)
+// ==========================================
+@Composable
+fun PaginationBarV2(
+    currentPage: Int,
+    totalPages: Int,
+    onPageChange: (Int) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White)
+            .padding(8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            onClick = { onPageChange(currentPage - 1) },
+            enabled = currentPage > 1
+        ) {
+            Text("<", fontWeight = FontWeight.Bold)
+        }
+
+        val startPage = (currentPage - 2).coerceAtLeast(1)
+        val endPage = (startPage + 4).coerceAtMost(totalPages)
+        val adjustedStartPage = (endPage - 4).coerceAtLeast(1)
+
+        for (page in adjustedStartPage..endPage) {
+            PageButtonV2(
+                page = page,
+                isSelected = page == currentPage,
+                onClick = { onPageChange(page) }
+            )
+        }
+
+        IconButton(
+            onClick = { onPageChange(currentPage + 1) },
+            enabled = currentPage < totalPages
+        ) {
+            Text(">", fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun PageButtonV2(
+    page: Int,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    // 진한 회색으로 변경
+    val backgroundColor = if (isSelected) Color.DarkGray else Color.Transparent
+    val contentColor = if (isSelected) Color.White else Color.Black
+
+    Box(
+        modifier = Modifier
+            .padding(horizontal = 4.dp)
+            .size(32.dp)
+            .background(color = backgroundColor, shape = RoundedCornerShape(4.dp))
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = page.toString(),
+            color = contentColor,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+        )
+    }
+}
+
+// ==========================================
+// 리스트 아이템 UI
+// ==========================================
 @Composable
 fun MyBinItemRow(bin: MyBinItem) {
     Card(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5)) // 연한 회색 배경
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF))
     ) {
         Row(
             modifier = Modifier
@@ -179,7 +294,7 @@ fun MyBinItemRow(bin: MyBinItem) {
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 1. 이미지 (왼쪽)
+            // 1. 이미지
             AsyncImage(
                 model = bin.imgUrl ?: "https://via.placeholder.com/150",
                 contentDescription = null,
@@ -194,7 +309,7 @@ fun MyBinItemRow(bin: MyBinItem) {
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            // 2. 텍스트 정보 (가운데)
+            // 2. 텍스트
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = bin.description ?: "위치 설명 없음",
@@ -206,23 +321,22 @@ fun MyBinItemRow(bin: MyBinItem) {
                 Text(
                     text = formatDateTimeV2(bin.createdAt),
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray
+                    color = Color.Black
                 )
             }
 
-            // 3. 상태 뱃지 (오른쪽)
+            // 3. 뱃지
             StatusBadgeV2(status = bin.status)
         }
     }
 }
 
-// 상태 표시 뱃지 컴포넌트
 @Composable
 fun StatusBadgeV2(status: String) {
     val (text, color, containerColor) = when (status) {
-        "approved" -> Triple("승인됨", Color(0xFF1B5E20), Color(0xFFC8E6C9)) // 초록
-        "rejected" -> Triple("거절됨", Color(0xFFB71C1C), Color(0xFFFFCDD2)) // 빨강
-        else -> Triple("심사중", Color(0xFFE65100), Color(0xFFFFE0B2))       // 주황 (기본)
+        "approved" -> Triple("승인됨", Color(0xFF1B5E20), Color(0xFFC8E6C9))
+        "rejected" -> Triple("거절됨", Color(0xFFB71C1C), Color(0xFFFFCDD2))
+        else -> Triple("심사중", Color(0xFFE65100), Color(0xFFFFE0B2))
     }
 
     Surface(
@@ -242,8 +356,8 @@ fun StatusBadgeV2(status: String) {
 fun formatDateTimeV2(dateString: String): String {
     return try {
         if (dateString.contains("T")) {
-            val datePart = dateString.split("T")[0] // 2025-11-27
-            datePart.replace("-", ".") // 2025.11.27
+            val datePart = dateString.split("T")[0]
+            datePart.replace("-", ".")
         } else {
             dateString
         }
