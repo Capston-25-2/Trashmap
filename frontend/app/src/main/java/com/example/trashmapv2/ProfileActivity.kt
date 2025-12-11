@@ -82,7 +82,7 @@ class ProfileActivity : AppCompatActivity() {
                             uiState = uiState.copy(
                                 nickname = myInfo.username,
                                 level = myInfo.level,
-                                exp = myInfo.exp % 20,
+                                exp = myInfo.exp % 100,
                                 role = myInfo.role // [추가] 서버에서 받은 role 저장
                             )
                             Log.d("Profile", "유저 권한: ${myInfo.role}")
@@ -196,7 +196,7 @@ fun ProfileScreen(
             profileImageUrl = uiState.profileImageUrl,
             level = uiState.level,
             currentExp = uiState.exp,
-            maxExp = 20
+            maxExp = 100
         )
 
         Spacer(modifier = Modifier.height(16.dp))

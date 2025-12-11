@@ -1,12 +1,13 @@
 package com.example.trashmapv2.ui.admin
 
 import android.widget.Toast
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,7 +15,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -28,6 +31,7 @@ import kotlin.math.ceil
 @Composable
 fun IssueListScreen(navController: NavController) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
     val ITEMS_PER_PAGE = 5
 
@@ -50,14 +54,12 @@ fun IssueListScreen(navController: NavController) {
             val token = TokenManager.getAuthToken(context) ?: return@launch
             try {
                 val offset = (page - 1) * ITEMS_PER_PAGE
-
-                // 검색어가 비어있으면 null, 있으면 값 전달
                 val dongParam = if (searchQuery.isNotBlank()) searchQuery else null
 
                 val response = RetrofitClient.apiInstance.getAdminIssueList(
                     token = "Bearer $token",
                     dong = dongParam,
-                    status = listOf("pending"), // 미해결 건만 조회
+                    status = listOf("pending"),
                     offset = offset,
                     limit = ITEMS_PER_PAGE
                 )
@@ -77,14 +79,12 @@ fun IssueListScreen(navController: NavController) {
         }
     }
 
-    // [2] 이슈 해결 처리 (버튼 클릭 시)
+    // [2-A] 이슈 해결 (승인)
     fun resolveIssue(issueId: Int) {
         coroutineScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
             try {
-                // status="resolved"로 변경하고, answer=true를 보내 신고자에게 보상을 지급함
                 val request = IssueStatusUpdateRequest(status = "resolved", answer = true)
-
                 val response = RetrofitClient.apiInstance.resolveIssue(
                     token = "Bearer $token",
                     issueId = issueId,
@@ -92,9 +92,31 @@ fun IssueListScreen(navController: NavController) {
                 )
 
                 if (response.isSuccessful) {
-                    Toast.makeText(context, "해결 완료! 신고자에게 알림이 전송되었습니다.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "해결 완료! (보상 지급됨)", Toast.LENGTH_SHORT).show()
+                    loadIssues(currentPage)
+                } else {
+                    Toast.makeText(context, "처리 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "오류 발생: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
-                    // 현재 페이지 데이터 갱신
+    // [2-B] 이슈 거절 (반려)
+    fun rejectIssue(issueId: Int) {
+        coroutineScope.launch {
+            val token = TokenManager.getAuthToken(context) ?: return@launch
+            try {
+                val request = IssueStatusUpdateRequest(status = "rejected", answer = false)
+                val response = RetrofitClient.apiInstance.resolveIssue(
+                    token = "Bearer $token",
+                    issueId = issueId,
+                    body = request
+                )
+
+                if (response.isSuccessful) {
+                    Toast.makeText(context, "신고 거절 완료. (보상 없음)", Toast.LENGTH_SHORT).show()
                     loadIssues(currentPage)
                 } else {
                     Toast.makeText(context, "처리 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
@@ -111,7 +133,6 @@ fun IssueListScreen(navController: NavController) {
         loadIssues(1)
     }
 
-    // 화면 진입 시 초기 로드
     LaunchedEffect(Unit) {
         loadIssues(currentPage)
     }
@@ -119,10 +140,9 @@ fun IssueListScreen(navController: NavController) {
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .systemBarsPadding(), // ★ 시스템 바 가림 방지
+            .systemBarsPadding(),
         topBar = { TopAppBar(title = { Text("이슈(신고) 관리") }) },
         bottomBar = {
-            // ★ 페이지네이션 바
             val totalPages = if (totalItems == 0) 1 else ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()
             PaginationBar(
                 currentPage = currentPage,
@@ -140,40 +160,65 @@ fun IssueListScreen(navController: NavController) {
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-
             // 검색창
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 label = { Text("동 이름 검색 (예: 흑석동)") },
-                trailingIcon = {
-                    IconButton(onClick = { onSearch() }) {
-                        Icon(Icons.Default.Search, contentDescription = "검색")
-                    }
-                },
+                singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(
+                    onSearch = {
+                        focusManager.clearFocus()
+                        onSearch()
+                    }
+                ),
+                trailingIcon = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { searchQuery = "" },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "지우기",
+                                    tint = Color.Gray
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        IconButton(onClick = {
+                            focusManager.clearFocus()
+                            onSearch()
+                        }) {
+                            Icon(Icons.Default.Search, contentDescription = "검색")
+                        }
+                    }
+                }
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 상단 카운트
             Text(
-                text = "대기 이슈: ${totalItems}건 (페이지 $currentPage / ${ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()})",
+                text = "대기 이슈: ${totalItems}건",
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp,
                 color = Color.Gray,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
 
-            // 리스트
             if (isLoading) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
             } else if (issueList.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("해결할 이슈가 없습니다.", color = Color.Gray)
+                    Text("처리할 이슈가 없습니다.", color = Color.Gray)
                 }
             } else {
                 LazyColumn(
@@ -183,7 +228,8 @@ fun IssueListScreen(navController: NavController) {
                     items(issueList) { issue ->
                         IssueItemCard(
                             issue = issue,
-                            onResolveClick = { resolveIssue(issue.issueId) }
+                            onResolveClick = { resolveIssue(issue.issueId) },
+                            onRejectClick = { rejectIssue(issue.issueId) }
                         )
                     }
                 }
@@ -193,7 +239,11 @@ fun IssueListScreen(navController: NavController) {
 }
 
 @Composable
-fun IssueItemCard(issue: IssueItem, onResolveClick: () -> Unit) {
+fun IssueItemCard(
+    issue: IssueItem,
+    onResolveClick: () -> Unit,
+    onRejectClick: () -> Unit
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(2.dp),
@@ -205,18 +255,37 @@ fun IssueItemCard(issue: IssueItem, onResolveClick: () -> Unit) {
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // [왼쪽] 정보 표시 영역
             Column(modifier = Modifier.weight(1f)) {
-                // 1. 쓰레기통 ID
-                Text(
-                    text = "쓰레기통 ID: ${issue.trashcan.trashcanId}",
-                    fontSize = 12.sp,
-                    color = Color.Gray,
-                    fontWeight = FontWeight.Bold
-                )
+                // [수정됨] ID와 찬성/반대 정보를 한 줄에 표시
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "ID: ${issue.trashcan.trashcanId}",
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // 찬성 카운트
+                    Text(
+                        text = "맞아요: ${issue.agreeCount}",
+                        fontSize = 12.sp,
+                        color = Color(0xFF1976D2), // 파란색 계열
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // 반대 카운트
+                    Text(
+                        text = "아니요: ${issue.disagreeCount}",
+                        fontSize = 12.sp,
+                        color = Color(0xFFD32F2F), // 빨간색 계열
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // 2. 이슈 타입 (한글 변환)
                 val typeText = when(issue.issueType) {
                     "missing" -> "위치 불일치 / 없음"
                     "damaged" -> "파손됨 / 관리 필요"
@@ -225,49 +294,61 @@ fun IssueItemCard(issue: IssueItem, onResolveClick: () -> Unit) {
                 }
                 Text(
                     text = typeText,
-                    color = Color(0xFFD32F2F), // 빨간색
+                    color = Color(0xFFD32F2F),
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // 3. 전체 주소 (body)
                 val address = issue.trashcan.body ?: "주소 정보 없음 (${issue.trashcan.dong ?: ""})"
                 Text(
                     text = address,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     maxLines = 2,
-                    lineHeight = 20.sp
+                    lineHeight = 18.sp,
+                    color = Color.DarkGray
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
-                // 4. 신고 접수 건수
                 Text(
-                    text = "접수된 신고: ${issue.reportCount}건",
+                    text = "신고: ${issue.reportCount}건",
                     fontSize = 12.sp,
                     color = Color.Blue
                 )
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
-            // [오른쪽] 해결하기 버튼
-            Button(
-                onClick = onResolveClick,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)), // 초록색
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.height(44.dp)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("해결", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Button(
+                    onClick = onResolveClick,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier
+                        .width(80.dp)
+                        .height(36.dp)
+                ) {
+                    Text("해결", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = onRejectClick,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.Red),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier
+                        .width(80.dp)
+                        .height(36.dp)
+                ) {
+                    Text("거절", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }

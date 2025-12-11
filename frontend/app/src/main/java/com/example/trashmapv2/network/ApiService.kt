@@ -176,7 +176,9 @@ data class IssueItem(
     @SerializedName("status") val status: String,        // "pending", "resolved"
     @SerializedName("report_count") val reportCount: Int,
     @SerializedName("created_at") val createdAt: String,
-    @SerializedName("trashcan") val trashcan: IssueBinInfo // 쓰레기통 정보 (중첩)
+    @SerializedName("trashcan") val trashcan: IssueBinInfo, // 쓰레기통 정보 (중첩)
+    @SerializedName("agree_count") val agreeCount: Int = 0,
+    @SerializedName("disagree_count") val disagreeCount: Int = 0
 )
 
 // 이슈 내 쓰레기통 정보 (위치 등)

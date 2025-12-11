@@ -15,6 +15,8 @@ import java.util.Locale
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.core.app.ActivityCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
@@ -28,7 +30,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 
 import kotlinx.coroutines.delay
@@ -119,6 +126,7 @@ class MainActivity : AppCompatActivity() {
 
     // API 호출 제한 레벨 (이 값보다 줌 레벨이 낮으면 호출 안 함)
     private val MIN_ZOOM_LEVEL_FOR_API = 13
+    private var onFirstLocationFound: (() -> Unit)? = null
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -134,7 +142,25 @@ class MainActivity : AppCompatActivity() {
 
         setContent {
             TrashMapAppV2Theme(darkTheme = false) {
-                // 바텀시트 상태 및 비동기 스코프
+
+                var isAppLoading by remember { mutableStateOf(true) }
+
+                DisposableEffect(Unit) {
+                    // 지도에서 위치를 찾으면 실행될 행동을 정의
+                    this@MainActivity.onFirstLocationFound = {
+                        isAppLoading = false // 로딩 끝!
+                    }
+                    onDispose { }
+                }
+
+                LaunchedEffect(Unit) {
+                    delay(10000L)
+                    if (isAppLoading) {
+                        isAppLoading = false
+                    }
+                }
+
+                // --- 기존 상태 변수들 ---
                 val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
                 val coroutineScope = rememberCoroutineScope()
 
@@ -206,136 +232,159 @@ class MainActivity : AppCompatActivity() {
                     isSuggestionModeActive = false
                 }
 
+                // [3] ★ 전체를 감싸는 최상위 Box (스플래시 화면을 겹치기 위함)
                 Box(modifier = Modifier.fillMaxSize()) {
-                    // 지도 화면 표시
-                    AndroidView(
-                        factory = {
-                            mapView.apply { start(mapLifeCycleCallback, mapReadyCallback) }
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
 
-                    // UI 분기: 건의 모드 vs 일반 모드
-                    if (isSuggestionModeActive) {
-                        // 건의 모드 UI
-                        SuggestionAddressBar(
-                            modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top)),
-                            address = currentAddress
-                        )
-                        SuggestionCenterPin(modifier = Modifier.align(Alignment.Center))
-                        SuggestionConfirmBar(
-                            modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom)),
-                            onCancelClick = { isSuggestionModeActive = false },
-                            onConfirmClick = {
-                                val currentMapCenter = kakaoMap?.cameraPosition?.position
-                                if (currentMapCenter != null) {
-                                    sendSuggestionToServer(
-                                        lat = currentMapCenter.latitude,
-                                        lon = currentMapCenter.longitude,
-                                        address = currentAddress
-                                    )
-                                }else {
-                                    Toast.makeText(this@MainActivity, "지도가 준비되지 않았습니다.", Toast.LENGTH_SHORT).show()
-                                }
-                                isSuggestionModeActive = false
-                            }
-                        )
-                    } else {
-                        // 일반 모드 UI
-                        MapFilterTopBar(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top)),
-                            selectedIds = selectedCategoryIds,
-                            onFilterClick = { clickedId ->
-                                // [필터 로직] 토글 방식 (이미 켜진거 누르면 끄기, 아니면 켜기)
-                                val newSelection = if (selectedCategoryIds.contains(clickedId) && selectedCategoryIds.size == 1) {
-                                    emptySet() // 꺼짐 -> 전체 보기 상태
-                                } else {
-                                    setOf(clickedId) // 하나만 선택됨
-                                }
-                                selectedCategoryIds = newSelection
-
-                                // 지도 새로고침 (쓰레기통 + 미션 모두 반영)
-                                if (kakaoMap != null) {
-                                    refreshMapPins(kakaoMap!!)
-                                }
-                            }
-                        )
-                        AppBottomNavigation(
-                            modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom)),
-                            onProfileClick = {
-                                val targetClass = if (isUserLoggedIn()) ProfileActivity::class.java else LoginActivity::class.java
-                                startActivity(Intent(this@MainActivity, targetClass))
+                    // --- A. 메인 지도 및 UI (가장 아래 레이어) ---
+                    // (기존 Box 로직을 그대로 유지하되, 여기 안에 포함시킴)
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        // 지도 화면 표시
+                        AndroidView(
+                            factory = {
+                                mapView.apply { start(mapLifeCycleCallback, mapReadyCallback) }
                             },
-                            onAddBinClick = {
-                                if (isUserLoggedIn()) {
-                                    if (ActivityCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                                        Toast.makeText(this@MainActivity, "위치 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
+                            modifier = Modifier.fillMaxSize()
+                        )
+
+                        // UI 분기: 건의 모드 vs 일반 모드
+                        if (isSuggestionModeActive) {
+                            // 건의 모드 UI
+                            SuggestionAddressBar(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top)),
+                                address = currentAddress
+                            )
+                            SuggestionCenterPin(modifier = Modifier.align(Alignment.Center))
+                            SuggestionConfirmBar(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom)),
+                                onCancelClick = { isSuggestionModeActive = false },
+                                onConfirmClick = {
+                                    val currentMapCenter = kakaoMap?.cameraPosition?.position
+                                    if (currentMapCenter != null) {
+                                        sendSuggestionToServer(
+                                            lat = currentMapCenter.latitude,
+                                            lon = currentMapCenter.longitude,
+                                            address = currentAddress
+                                        )
                                     } else {
-                                        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-                                            .addOnSuccessListener { location ->
-                                                if (location != null) {
-                                                    val intent = Intent(this@MainActivity, RegisterActivity::class.java).apply {
-                                                        putExtra("latitude", location.latitude)
-                                                        putExtra("longitude", location.longitude)
+                                        Toast.makeText(this@MainActivity, "지도가 준비되지 않았습니다.", Toast.LENGTH_SHORT).show()
+                                    }
+                                    isSuggestionModeActive = false
+                                }
+                            )
+                        } else {
+                            // 일반 모드 UI
+                            MapFilterTopBar(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top)),
+                                selectedIds = selectedCategoryIds,
+                                onFilterClick = { clickedId ->
+                                    val newSelection = if (selectedCategoryIds.contains(clickedId) && selectedCategoryIds.size == 1) {
+                                        emptySet()
+                                    } else {
+                                        setOf(clickedId)
+                                    }
+                                    selectedCategoryIds = newSelection
+
+                                    if (kakaoMap != null) {
+                                        refreshMapPins(kakaoMap!!)
+                                    }
+                                }
+                            )
+                            AppBottomNavigation(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom)),
+                                onProfileClick = {
+                                    val targetClass = if (isUserLoggedIn()) ProfileActivity::class.java else LoginActivity::class.java
+                                    startActivity(Intent(this@MainActivity, targetClass))
+                                },
+                                onAddBinClick = {
+                                    if (isUserLoggedIn()) {
+                                        if (ActivityCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                                            Toast.makeText(this@MainActivity, "위치 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                                                .addOnSuccessListener { location ->
+                                                    if (location != null) {
+                                                        val intent = Intent(this@MainActivity, RegisterActivity::class.java).apply {
+                                                            putExtra("latitude", location.latitude)
+                                                            putExtra("longitude", location.longitude)
+                                                        }
+                                                        startActivity(intent)
+                                                    } else {
+                                                        Toast.makeText(this@MainActivity, "현재 위치를 찾을 수 없습니다.", Toast.LENGTH_SHORT).show()
                                                     }
-                                                    startActivity(intent)
-                                                } else {
-                                                    Toast.makeText(this@MainActivity, "현재 위치를 찾을 수 없습니다.", Toast.LENGTH_SHORT).show()
                                                 }
-                                            }
-                                            .addOnFailureListener {
-                                                Toast.makeText(this@MainActivity, "위치 오류", Toast.LENGTH_SHORT).show()
-                                            }
-                                    }
-                                } else {
-                                    Toast.makeText(this@MainActivity, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
-                                    startActivity(Intent(this@MainActivity, LoginActivity::class.java))
-                                }
-                            },
-                            onSuggestionClick = {
-                                if (isUserLoggedIn()) {
-                                    moveToMyLocation()
-                                    lifecycleScope.launch {
-                                        delay(600L)
-                                        val mapCenter = kakaoMap?.cameraPosition?.position
-                                        if (mapCenter != null) {
-                                            fetchDongFromKakao(mapCenter.latitude, mapCenter.longitude)
+                                                .addOnFailureListener {
+                                                    Toast.makeText(this@MainActivity, "위치 오류", Toast.LENGTH_SHORT).show()
+                                                }
                                         }
-                                        isSuggestionModeActive = true
+                                    } else {
+                                        Toast.makeText(this@MainActivity, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
+                                        startActivity(Intent(this@MainActivity, LoginActivity::class.java))
                                     }
-                                } else {
-                                    Toast.makeText(this@MainActivity, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
-                                    startActivity(Intent(this@MainActivity, LoginActivity::class.java))
+                                },
+                                onSuggestionClick = {
+                                    if (isUserLoggedIn()) {
+                                        moveToMyLocation()
+                                        lifecycleScope.launch {
+                                            delay(600L)
+                                            val mapCenter = kakaoMap?.cameraPosition?.position
+                                            if (mapCenter != null) {
+                                                fetchDongFromKakao(mapCenter.latitude, mapCenter.longitude)
+                                            }
+                                            isSuggestionModeActive = true
+                                        }
+                                    } else {
+                                        Toast.makeText(this@MainActivity, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
+                                        startActivity(Intent(this@MainActivity, LoginActivity::class.java))
+                                    }
                                 }
+                            )
+                            FloatingActionButton(
+                                onClick = { moveToMyLocation() },
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom))
+                                    .padding(bottom = 100.dp, end = 16.dp),
+                                containerColor = MaterialTheme.colorScheme.surface
+                            ) {
+                                Icon(imageVector = Icons.Default.MyLocation, contentDescription = "내 위치로 이동")
                             }
-                        )
-                        FloatingActionButton(
-                            onClick = { moveToMyLocation() },
-                            modifier = Modifier.align(Alignment.BottomEnd).windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom)).padding(bottom = 100.dp, end = 16.dp),
-                            containerColor = MaterialTheme.colorScheme.surface
-                        ) {
-                            Icon(imageVector = Icons.Default.MyLocation, contentDescription = "내 위치로 이동")
                         }
                     }
-                }
 
+                    // --- B. 바텀 시트 (Overlay) ---
+                    if (selectedBinInfo != null) {
+                        ModalBottomSheet(
+                            onDismissRequest = { selectedBinInfo = null },
+                            sheetState = sheetState,
+                            dragHandle = { BottomSheetDefaults.DragHandle() }
+                        ) {
+                            PinDetailsSheet(
+                                binInfo = selectedBinInfo!!,
+                                onReportAction = { reportType ->
+                                    reportBinToServer(selectedBinInfo!!.id, reportType)
+                                    coroutineScope.launch { sheetState.hide() }.invokeOnCompletion { selectedBinInfo = null }
+                                }
+                            )
+                        }
+                    }
 
-                // 쓰레기통 상세 바텀시트
-                if (selectedBinInfo != null) {
-                    ModalBottomSheet(
-                        onDismissRequest = { selectedBinInfo = null },
-                        sheetState = sheetState,
-                        dragHandle = { BottomSheetDefaults.DragHandle() }
+                    // --- C. ★ 스플래시 스크린 (가장 위 레이어) ---
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = isAppLoading,
+                        exit = androidx.compose.animation.fadeOut(
+                            animationSpec = androidx.compose.animation.core.tween(500) // 0.5초 동안 부드럽게 사라짐
+                        ),
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        PinDetailsSheet(
-                            binInfo = selectedBinInfo!!,
-                            onReportAction = { reportType ->
-                                reportBinToServer(selectedBinInfo!!.id, reportType)
-                                coroutineScope.launch { sheetState.hide() }.invokeOnCompletion { selectedBinInfo = null }
-                            }
-                        )
+                        SplashScreen() // ★ 별도 정의한 로딩 화면 함수
                     }
                 }
             }
@@ -634,6 +683,8 @@ class MainActivity : AppCompatActivity() {
                         val cameraUpdate = CameraUpdateFactory.newCenterPosition(newPosition, 16)
                         kakaoMap.moveCamera(cameraUpdate)
                         addMyPositionPin(kakaoMap, newPosition)
+                        onFirstLocationFound?.invoke()
+
                     } else {
                         myPositionPin?.moveTo(newPosition)
                     }
@@ -796,6 +847,45 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             } catch (e: Exception) {}
+        }
+    }
+
+
+    // 로딩 화면 디자인 (로고 + 텍스트)
+    @Composable
+    fun SplashScreen() {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White), // ★ 배경을 흰색으로 변경
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                // [1] 앱 아이콘 (Image 사용 권장)
+                // Icon 대신 Image를 써야 아이콘의 원래 색상이 그대로 나옵니다.
+                Image(
+                    painter = painterResource(id = R.drawable.trashcan_app_icon),
+                    contentDescription = "App Logo",
+                    modifier = Modifier.size(120.dp), // 크기 조절
+                    contentScale = ContentScale.Fit
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // [2] 앱 이름 "쓰포터"
+                Text(
+                    text = "쓰포터", // ★ 텍스트 변경
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.ExtraBold, // 두껍게
+                    color = Color.Black // ★ 흰 배경이므로 검은 글씨
+                )
+
+                Spacer(modifier = Modifier.height(48.dp)) // 로딩바와 간격 좀 더 띄움
+
+            }
         }
     }
 

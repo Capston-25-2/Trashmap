@@ -2,6 +2,7 @@ package com.example.trashmapv2.ui.admin
 
 import android.app.Activity
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -63,7 +64,7 @@ fun AdminMain() {
             TrashManagementScreen(navController)
         }
 
-        // 4. [추가됨] 쓰레기통 상세 화면 (목록에서 이쪽으로 이동하게 됨)
+        // 4. 쓰레기통 상세 화면 (목록에서 이쪽으로 이동하게 됨)
         composable(
             route = "${AdminRoutes.TRASH_DETAIL}/{binId}",
             arguments = listOf(androidx.navigation.navArgument("binId") {
@@ -225,7 +226,26 @@ fun JurisdictionSearchDialog(
             modifier = Modifier.fillMaxWidth().height(500.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("관할 지역 검색", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+
+                // [수정] 타이틀 + 초기화 버튼 Row 배치
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("관할 지역 검색", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+
+                    // 초기화 버튼
+                    TextButton(
+                        onClick = {
+                            // 빈 문자열을 보내 초기화 신호를 줌
+                            onDongSelected("")
+                        }
+                    ) {
+                        Text("초기화", color = Color.Red, fontWeight = FontWeight.Bold)
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // 검색창 & 버튼
@@ -275,9 +295,8 @@ fun JurisdictionSearchDialog(
                                     .fillMaxWidth()
                                     .clickable {
                                         val address = item.addressName.trim()
-                                        val addressParts = address.split(" ") // 공백으로 나눔
+                                        val addressParts = address.split(" ")
 
-                                        // 유효성 검사 (기존 로직 유지)
                                         val isValidDong = addressParts.size >= 3 ||
                                                 address.endsWith("동") ||
                                                 address.endsWith("읍") ||
@@ -285,17 +304,13 @@ fun JurisdictionSearchDialog(
                                                 address.endsWith("가")
 
                                         if (isValidDong) {
-                                            // ★ [수정] 전체 주소 대신 맨 마지막 단어(동 이름)만 추출
-                                            // 예: "서울 강서구 화곡동" -> ["서울", "강서구", "화곡동"] -> "화곡동"
                                             val realDong = addressParts.last()
-
-                                            // 추출한 동 이름만 전달 (AdminPrefs에 이것만 저장됨)
                                             onDongSelected(realDong)
                                         } else {
-                                            android.widget.Toast.makeText(
+                                            Toast.makeText(
                                                 context,
                                                 "상세 행정구역(동)까지 선택해주세요.\n(예: 서울 강서구 -> X, 화곡동 -> O)",
-                                                android.widget.Toast.LENGTH_SHORT
+                                                Toast.LENGTH_SHORT
                                             ).show()
                                         }
                                     }

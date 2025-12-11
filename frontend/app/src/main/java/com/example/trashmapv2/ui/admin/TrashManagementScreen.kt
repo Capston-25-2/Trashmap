@@ -10,9 +10,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -22,8 +25,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,10 +52,9 @@ import kotlin.math.ceil
 enum class SearchMode { REGION, USER }
 
 // ==========================================
-// [Screen 1] 쓰레기통 목록 및 검색 화면
+// [ViewModel] TrashViewModel
 // ==========================================
 class TrashViewModel : ViewModel() {
-    // 상태 변수들을 ViewModel로 이동
     var binList by mutableStateOf<List<AdminBinItem>>(emptyList())
     var isLoading by mutableStateOf(false)
 
@@ -59,10 +63,9 @@ class TrashViewModel : ViewModel() {
 
     var searchMode by mutableStateOf(SearchMode.REGION)
     var searchQuery by mutableStateOf("")
-    var searchResults by mutableStateOf<List<String>>(emptyList()) // 자동완성 결과
-    var isSearching by mutableStateOf(false) // 드롭다운 노출 여부
+    var searchResults by mutableStateOf<List<String>>(emptyList())
+    var isSearching by mutableStateOf(false)
 
-    // API: 쓰레기통 목록 로드
     fun loadBins(context: Context, page: Int) {
         isLoading = true
         viewModelScope.launch {
@@ -101,14 +104,12 @@ class TrashViewModel : ViewModel() {
         }
     }
 
-    // 검색 버튼 클릭
     fun onSearch(context: Context) {
         currentPage = 1
         loadBins(context, 1)
         isSearching = false
     }
 
-    // API: 주소 검색 (자동완성)
     fun searchAddress(query: String) {
         if (query.length < 2 || searchMode == SearchMode.USER) return
 
@@ -137,20 +138,16 @@ class TrashViewModel : ViewModel() {
 @Composable
 fun TrashManagementScreen(
     navController: NavController,
-    // ★ ViewModel 주입
     viewModel: TrashViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current // [추가] 키보드 제어
     val ITEMS_PER_PAGE = 5
 
-    // 관할 구역 정보 가져오기 (초기값용)
     val savedJurisdiction = remember { AdminPrefs.getJurisdiction(context) ?: "" }
 
-    // 화면 진입 시 초기 로드
     LaunchedEffect(Unit) {
-        // ★ 리스트가 비어있을 때만(처음 진입 시) 로드 -> 뒤로가기 시 상태 유지됨
         if (viewModel.binList.isEmpty()) {
-            // 초기 검색어가 비어있다면 저장된 관할 구역으로 설정
             if (viewModel.searchQuery.isBlank()) {
                 viewModel.searchQuery = savedJurisdiction
             }
@@ -169,10 +166,10 @@ fun TrashManagementScreen(
             val totalPages = if (viewModel.totalItems == 0) 1 else ceil(viewModel.totalItems.toDouble() / ITEMS_PER_PAGE).toInt()
 
             TrashPaginationBar(
-                currentPage = viewModel.currentPage, // ViewModel 값
+                currentPage = viewModel.currentPage,
                 totalPages = totalPages,
                 onPageChange = { newPage ->
-                    viewModel.loadBins(context, newPage) // ViewModel 함수
+                    viewModel.loadBins(context, newPage)
                 }
             )
         }
@@ -189,7 +186,7 @@ fun TrashManagementScreen(
                     selected = viewModel.searchMode == SearchMode.REGION,
                     onClick = {
                         viewModel.searchMode = SearchMode.REGION
-                        viewModel.searchQuery = "" // 모드 변경 시 초기화
+                        viewModel.searchQuery = ""
                     }
                 )
                 Text("지역(동) 검색", modifier = Modifier.clickable { viewModel.searchMode = SearchMode.REGION })
@@ -220,15 +217,51 @@ fun TrashManagementScreen(
                     label = {
                         Text(if (viewModel.searchMode == SearchMode.REGION) "동 이름 (예: 화곡동)" else "유저 이름")
                     },
-                    trailingIcon = {
-                        IconButton(onClick = { viewModel.onSearch(context) }) {
-                            Icon(Icons.Default.Search, contentDescription = "검색")
-                        }
-                    },
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth().menuAnchor(),
-                    singleLine = true
+
+                    // ★ [추가] 키보드 엔터(검색) 처리
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(
+                        onSearch = {
+                            focusManager.clearFocus() // 키보드 내리기
+                            viewModel.onSearch(context) // 검색 실행
+                        }
+                    ),
+
+                    // ★ [추가] 우측 아이콘 (X 버튼 + 돋보기)
+                    trailingIcon = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(end = 8.dp)
+                        ) {
+                            // X(지우기) 버튼
+                            if (viewModel.searchQuery.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { viewModel.searchQuery = "" },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "지우기",
+                                        tint = Color.Gray
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+
+                            // 돋보기 버튼
+                            IconButton(onClick = {
+                                focusManager.clearFocus()
+                                viewModel.onSearch(context)
+                            }) {
+                                Icon(Icons.Default.Search, contentDescription = "검색")
+                            }
+                        }
+                    }
                 )
 
+                // 자동완성 드롭다운
                 if (viewModel.searchMode == SearchMode.REGION && viewModel.searchResults.isNotEmpty()) {
                     ExposedDropdownMenu(
                         expanded = viewModel.isSearching,
@@ -241,7 +274,8 @@ fun TrashManagementScreen(
                                     val trimmed = address.trim()
                                     val realDong = trimmed.split(" ").last()
                                     viewModel.searchQuery = realDong
-                                    viewModel.onSearch(context) // 선택 즉시 검색
+                                    focusManager.clearFocus() // 선택 시 키보드 내림
+                                    viewModel.onSearch(context)
                                 }
                             )
                         }
@@ -287,9 +321,9 @@ fun TrashManagementScreen(
     }
 }
 
-// ==========================================
-// ★ [수정] 페이지네이션 (이름 충돌 방지: Trash...)
-// ==========================================
+// ... (이하 PaginationBar, ItemCard, DetailScreen 코드는 기존과 동일하여 생략) ...
+// 기존 코드 그대로 사용하시면 됩니다.
+
 @Composable
 fun TrashPaginationBar(
     currentPage: Int,
@@ -357,10 +391,6 @@ fun TrashPageButton(
     }
 }
 
-
-// ==========================================
-// [Component] 목록 아이템 카드
-// ==========================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminBinItemCard(item: AdminBinItem, onClick: () -> Unit) {
@@ -412,9 +442,6 @@ fun AdminBinItemCard(item: AdminBinItem, onClick: () -> Unit) {
     }
 }
 
-// ==========================================
-// [Screen 2] 상세 정보 및 삭제 화면
-// ==========================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrashBinDetailScreen(navController: NavController, binId: Int) {
@@ -424,7 +451,6 @@ fun TrashBinDetailScreen(navController: NavController, binId: Int) {
     var binDetail by remember { mutableStateOf<BinDetail?>(null) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // 초기 데이터 로드
     LaunchedEffect(binId) {
         val token = TokenManager.getAuthToken(context) ?: return@LaunchedEffect
         try {
@@ -441,7 +467,6 @@ fun TrashBinDetailScreen(navController: NavController, binId: Int) {
         }
     }
 
-    // 삭제 함수
     fun deleteBin() {
         coroutineScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
@@ -474,7 +499,6 @@ fun TrashBinDetailScreen(navController: NavController, binId: Int) {
             )
         }
     ) { padding ->
-        // innerPadding 적용 및 스크롤 처리
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
@@ -534,7 +558,6 @@ fun TrashBinDetailScreen(navController: NavController, binId: Int) {
 
                     Spacer(modifier = Modifier.height(32.dp))
 
-                    // 삭제 버튼
                     Button(
                         onClick = { deleteBin() },
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
@@ -552,7 +575,6 @@ fun TrashBinDetailScreen(navController: NavController, binId: Int) {
     }
 }
 
-// DetailRow 컴포넌트
 @Composable
 fun DetailRow(label: String, value: String) {
     Row(

@@ -8,10 +8,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,12 +22,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.compose.viewModel // ★ ViewModel 사용
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.example.trashmapv2.auth.TokenManager
@@ -32,9 +37,6 @@ import com.example.trashmapv2.network.*
 import kotlinx.coroutines.launch
 import kotlin.math.ceil
 
-// ==========================================
-// ★ [New] PendingViewModel (상태 보존용)
-// ==========================================
 class PendingViewModel : ViewModel() {
     // 상태 변수
     var binList by mutableStateOf<List<AdminBinItem>>(emptyList())
@@ -42,19 +44,25 @@ class PendingViewModel : ViewModel() {
     var currentPage by mutableIntStateOf(1)
     var totalItems by mutableIntStateOf(0)
 
+    // [추가] 검색어 상태
+    var searchQuery by mutableStateOf("")
+
     // 대기 목록 로드
     fun loadPendingBins(context: Context, page: Int) {
         isLoading = true
         viewModelScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
             try {
-                currentPage = page // 페이지 저장
+                currentPage = page
                 val ITEMS_PER_PAGE = 5
                 val offset = (page - 1) * ITEMS_PER_PAGE
 
+                // [수정] 검색어가 있으면 dong 파라미터로 전달
+                val dongParam = if (searchQuery.isNotBlank()) searchQuery else null
+
                 val response = RetrofitClient.apiInstance.getAdminBinList(
                     token = "Bearer $token",
-                    dong = null,
+                    dong = dongParam,
                     status = "pending_validation",
                     offset = offset,
                     limit = ITEMS_PER_PAGE
@@ -74,6 +82,12 @@ class PendingViewModel : ViewModel() {
             }
         }
     }
+
+    // [추가] 검색 실행 함수
+    fun onSearch(context: Context) {
+        currentPage = 1
+        loadPendingBins(context, 1)
+    }
 }
 
 // ==========================================
@@ -83,15 +97,14 @@ class PendingViewModel : ViewModel() {
 @Composable
 fun PendingBinListScreen(
     navController: NavController,
-    // ★ ViewModel 주입
     viewModel: PendingViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current // [추가] 키보드 제어
     val ITEMS_PER_PAGE = 5
 
     // 화면 진입 시 초기 로드
     LaunchedEffect(Unit) {
-        // ★ 데이터가 없을 때만 로드 (뒤로가기 시 상태 유지)
         if (viewModel.binList.isEmpty()) {
             viewModel.loadPendingBins(context, 1)
         }
@@ -107,7 +120,6 @@ fun PendingBinListScreen(
         bottomBar = {
             val totalPages = if (viewModel.totalItems == 0) 1 else ceil(viewModel.totalItems.toDouble() / ITEMS_PER_PAGE).toInt()
 
-            // 이름 충돌 방지: PendingPaginationBar
             PendingPaginationBar(
                 currentPage = viewModel.currentPage,
                 totalPages = totalPages,
@@ -123,6 +135,57 @@ fun PendingBinListScreen(
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
+            // [추가] 검색창 구현
+            OutlinedTextField(
+                value = viewModel.searchQuery,
+                onValueChange = { viewModel.searchQuery = it },
+                label = { Text("동 이름 검색 (예: 흑석동)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+
+                // 1. 키보드 액션 (엔터 -> 검색)
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(
+                    onSearch = {
+                        focusManager.clearFocus() // 키보드 숨기기
+                        viewModel.onSearch(context) // 검색 실행
+                    }
+                ),
+
+                // 2. 우측 아이콘 (X 버튼 + 검색 버튼)
+                trailingIcon = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        // 텍스트가 있을 때만 X(지우기) 버튼 표시
+                        if (viewModel.searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { viewModel.searchQuery = "" },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "지우기",
+                                    tint = Color.Gray
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+
+                        // 검색 버튼
+                        IconButton(onClick = {
+                            focusManager.clearFocus()
+                            viewModel.onSearch(context)
+                        }) {
+                            Icon(Icons.Default.Search, contentDescription = "검색")
+                        }
+                    }
+                }
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             // 상단 정보 텍스트
             Text(
                 text = "대기 요청: ${viewModel.totalItems}건 (페이지 ${viewModel.currentPage} / ${ceil(viewModel.totalItems.toDouble() / ITEMS_PER_PAGE).toInt()})",
@@ -145,7 +208,6 @@ fun PendingBinListScreen(
                 ) {
                     items(viewModel.binList) { bin ->
                         AdminBinItemCard(bin) {
-                            // 클릭 시 상세 화면 이동
                             navController.navigate("pending_detail/${bin.trashcanId}")
                         }
                     }
@@ -156,8 +218,10 @@ fun PendingBinListScreen(
 }
 
 // ==========================================
-// ★ [수정] 페이지네이션 (이름 충돌 방지: Pending...)
+// PendingPaginationBar, PageButton, PendingBinDetailScreen
+// 기존 코드와 동일 (변경 사항 없음)
 // ==========================================
+
 @Composable
 fun PendingPaginationBar(
     currentPage: Int,
@@ -225,9 +289,6 @@ fun PendingPageButton(
     }
 }
 
-// ==========================================
-// 2. 상세 심사 화면 (기존 유지)
-// ==========================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PendingBinDetailScreen(navController: NavController, binId: Int) {

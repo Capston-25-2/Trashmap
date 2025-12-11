@@ -4,7 +4,10 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -12,7 +15,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -26,6 +31,7 @@ import kotlin.math.ceil
 @Composable
 fun SuggestionListScreen(navController: NavController) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
     val ITEMS_PER_PAGE = 5
 
@@ -122,7 +128,6 @@ fun SuggestionListScreen(navController: NavController) {
             TopAppBar(title = { Text("건의사항 관리") })
         },
         bottomBar = {
-            // ★ 페이지네이션 바 (UserManagementScreen에 정의된 것 사용)
             val totalPages = if (totalItems == 0) 1 else ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()
             PaginationBar(
                 currentPage = currentPage,
@@ -140,19 +145,54 @@ fun SuggestionListScreen(navController: NavController) {
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            // 검색창
+            // [수정된 부분] 검색창
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 label = { Text("동 이름 검색 (예: 상도1동)") },
                 placeholder = { Text("정확한 동 이름을 입력하세요") },
-                trailingIcon = {
-                    IconButton(onClick = { onSearch() }) {
-                        Icon(Icons.Default.Search, contentDescription = "검색")
-                    }
-                },
+                singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+
+                // 1. 키보드 액션 설정 (돋보기/완료 버튼)
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(
+                    onSearch = {
+                        focusManager.clearFocus() // 키보드 숨기기
+                        onSearch() // 검색 실행
+                    }
+                ),
+
+                // 2. 우측 아이콘 (X 버튼 + 검색 버튼)
+                trailingIcon = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        // 텍스트가 있을 때만 X(지우기) 버튼 표시
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { searchQuery = "" },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "지우기",
+                                    tint = Color.Gray
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+
+                        // 검색 버튼
+                        IconButton(onClick = {
+                            focusManager.clearFocus()
+                            onSearch()
+                        }) {
+                            Icon(Icons.Default.Search, contentDescription = "검색")
+                        }
+                    }
+                }
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -163,7 +203,6 @@ fun SuggestionListScreen(navController: NavController) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 페이지 정보 포함한 텍스트
                 val pageInfo = "페이지 $currentPage / ${ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()}"
 
                 Column {
@@ -179,7 +218,7 @@ fun SuggestionListScreen(navController: NavController) {
                     )
                 }
 
-                // ★ 검색어가 있고, 결과가 있을 때만 '일괄 처리' 버튼 표시
+                // 일괄 처리 버튼 (검색어 존재 & 결과 존재 시)
                 if (searchQuery.isNotBlank() && totalItems > 0) {
                     Button(
                         onClick = { approveBatch() },
@@ -249,8 +288,6 @@ fun SuggestItemCard(item: SuggestItem) {
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
-
-
 
             Spacer(modifier = Modifier.height(12.dp))
 

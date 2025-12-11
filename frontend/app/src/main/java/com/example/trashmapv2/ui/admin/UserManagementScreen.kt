@@ -8,8 +8,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,7 +20,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -40,7 +45,6 @@ class UserViewModel : ViewModel() {
     // API 호출 함수
     fun loadUsers(context: Context, page: Int) {
         isLoading = true
-        // ViewModel에서는 viewModelScope 사용
         viewModelScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
             try {
@@ -88,18 +92,14 @@ class UserViewModel : ViewModel() {
 @Composable
 fun UserManagementScreen(
     navController: NavController,
-    // ★ ViewModel 주입 (여기서 데이터를 관리함)
     viewModel: UserViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current // [추가] 키보드 제어용
     val ITEMS_PER_PAGE = 5
-
-    // ★ [핵심] 기존의 var userList by remember... 등은 모두 삭제했습니다.
-    // 대신 viewModel.userList 처럼 접근합니다.
 
     // 화면 진입 시 초기 로드
     LaunchedEffect(Unit) {
-        // ★ 이미 데이터가 있다면(상세 갔다가 돌아온 경우) 로드하지 않음 -> 상태 유지됨
         if (viewModel.userList.isEmpty()) {
             viewModel.loadUsers(context, 1)
         }
@@ -117,10 +117,10 @@ fun UserManagementScreen(
             val totalPages = if (viewModel.totalItems == 0) 1 else ceil(viewModel.totalItems.toDouble() / ITEMS_PER_PAGE).toInt()
 
             PaginationBar(
-                currentPage = viewModel.currentPage, // ViewModel 값 사용
+                currentPage = viewModel.currentPage,
                 totalPages = totalPages,
                 onPageChange = { newPage ->
-                    viewModel.loadUsers(context, newPage) // ViewModel 함수 호출
+                    viewModel.loadUsers(context, newPage)
                 }
             )
         }
@@ -131,18 +131,53 @@ fun UserManagementScreen(
                 .padding(innerPadding)
                 .padding(16.dp)
         ) {
-            // [검색창]
+            // [수정된 검색창]
             OutlinedTextField(
-                value = viewModel.searchQuery, // ViewModel 값 사용
-                onValueChange = { viewModel.searchQuery = it }, // 입력 시 ViewModel 값 업데이트
+                value = viewModel.searchQuery,
+                onValueChange = { viewModel.searchQuery = it },
                 label = { Text("유저 닉네임 검색") },
-                trailingIcon = {
-                    IconButton(onClick = { viewModel.onSearch(context) }) { // ViewModel 함수 호출
-                        Icon(Icons.Default.Search, contentDescription = "검색")
-                    }
-                },
+                singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+
+                // 1. 키보드 액션 설정 (돋보기/완료 버튼)
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(
+                    onSearch = {
+                        focusManager.clearFocus() // 키보드 숨기기
+                        viewModel.onSearch(context) // 검색 실행
+                    }
+                ),
+
+                // 2. 우측 아이콘 (X 버튼 + 돋보기)
+                trailingIcon = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        // 텍스트가 있을 때만 X(지우기) 버튼 표시
+                        if (viewModel.searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { viewModel.searchQuery = "" }, // 텍스트 지우기
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "지우기",
+                                    tint = Color.Gray
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+
+                        // 검색 버튼
+                        IconButton(onClick = {
+                            focusManager.clearFocus()
+                            viewModel.onSearch(context)
+                        }) {
+                            Icon(Icons.Default.Search, contentDescription = "검색")
+                        }
+                    }
+                }
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -181,6 +216,9 @@ fun UserManagementScreen(
     }
 }
 
+// 아래 컴포넌트들은 변경사항 없음 (PaginationBar, PageButton, UserItemCard, UserDetailScreen)
+// ... 기존 코드 유지 ...
+
 @Composable
 fun PaginationBar(
     currentPage: Int,
@@ -190,28 +228,20 @@ fun PaginationBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White) // 하단 바 배경색
+            .background(Color.White)
             .padding(8.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // [이전] 버튼
         IconButton(
             onClick = { onPageChange(currentPage - 1) },
             enabled = currentPage > 1
         ) {
-            // Icon 리소스가 없으면 기본 아이콘 사용 (ArrowBack 등)
-            // 여기선 텍스트로 대체하거나 아이콘 사용 가능
             Text("<", fontWeight = FontWeight.Bold)
         }
 
-        // [페이지 번호들]
-        // 너무 많은 페이지가 있을 때를 대비해 현재 페이지 주변 5개만 보여주기 로직
-        // 예: 1 2 [3] 4 5
         val startPage = (currentPage - 2).coerceAtLeast(1)
         val endPage = (startPage + 4).coerceAtMost(totalPages)
-
-        // 보정: 끝 페이지가 totalPages보다 작아서 5개가 안 채워지면 startPage를 앞으로 당김
         val adjustedStartPage = (endPage - 4).coerceAtLeast(1)
 
         for (page in adjustedStartPage..endPage) {
@@ -222,7 +252,6 @@ fun PaginationBar(
             )
         }
 
-        // [다음] 버튼
         IconButton(
             onClick = { onPageChange(currentPage + 1) },
             enabled = currentPage < totalPages
@@ -238,14 +267,13 @@ fun PageButton(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    // 선택된 페이지는 색상을 다르게 표시
     val backgroundColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
     val contentColor = if (isSelected) Color.White else Color.Black
 
     Box(
         modifier = Modifier
             .padding(horizontal = 4.dp)
-            .size(32.dp) // 버튼 크기
+            .size(32.dp)
             .background(color = backgroundColor, shape = RoundedCornerShape(4.dp))
             .clickable { onClick() },
         contentAlignment = Alignment.Center
@@ -258,7 +286,6 @@ fun PageButton(
     }
 }
 
-// 목록 아이템 카드 UI
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UserItemCard(user: AdminUser, onClick: () -> Unit) {
@@ -283,10 +310,7 @@ fun UserItemCard(user: AdminUser, onClick: () -> Unit) {
                     color = Color.Gray
                 )
             }
-
-            // 우측 뱃지 (Role / Status)
             Column(horizontalAlignment = Alignment.End) {
-
                 if (user.status == "banned") {
                     Text("정지됨", color = Color.Gray, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 } else {
@@ -297,10 +321,6 @@ fun UserItemCard(user: AdminUser, onClick: () -> Unit) {
     }
 }
 
-// ==========================================
-// [Screen 2] 유저 상세 및 관리 화면 (UserDetailScreen)
-// AdminMain의 "user_detail/{userId}" 와 연결됨
-// ==========================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UserDetailScreen(navController: NavController, userId: Int) {
@@ -310,7 +330,6 @@ fun UserDetailScreen(navController: NavController, userId: Int) {
     var userDetail by remember { mutableStateOf<AdminUserDetailResponse?>(null) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // 데이터 새로고침 함수
     fun refreshData() {
         isLoading = true
         coroutineScope.launch {
@@ -334,7 +353,6 @@ fun UserDetailScreen(navController: NavController, userId: Int) {
         refreshData()
     }
 
-    // 관리자 액션 (Role/Status 변경)
     fun updateUser(role: String? = null, status: String? = null) {
         coroutineScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
@@ -349,7 +367,7 @@ fun UserDetailScreen(navController: NavController, userId: Int) {
                 if (response.isSuccessful) {
                     val msg = if (role != null) "권한 변경 완료" else "상태 변경 완료"
                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                    refreshData() // 데이터 갱신
+                    refreshData()
                 } else {
                     Toast.makeText(context, "변경 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
                 }
@@ -360,7 +378,6 @@ fun UserDetailScreen(navController: NavController, userId: Int) {
     }
 
     Scaffold(
-        // ★ [수정] 상세 화면도 시스템 바 보호 적용
         modifier = Modifier
             .fillMaxSize()
             .systemBarsPadding(),
@@ -375,7 +392,6 @@ fun UserDetailScreen(navController: NavController, userId: Int) {
             )
         },
         bottomBar = {
-            // [하단 관리 버튼]
             if (userDetail != null) {
                 Column(Modifier.background(Color.White)) {
                     Divider()
@@ -385,7 +401,6 @@ fun UserDetailScreen(navController: NavController, userId: Int) {
                             .padding(16.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // 1. 밴/언밴 버튼
                         val isBanned = userDetail!!.status == "banned"
                         Button(
                             onClick = { updateUser(status = if (isBanned) "active" else "banned") },
@@ -397,7 +412,6 @@ fun UserDetailScreen(navController: NavController, userId: Int) {
                             Text(if (isBanned) "정지 해제" else "계정 정지")
                         }
 
-                        // 2. 관리자 승격/해제 버튼
                         val isAdmin = userDetail!!.role == "admin"
                         Button(
                             onClick = { updateUser(role = if (isAdmin) "user" else "admin") },
@@ -428,7 +442,6 @@ fun UserDetailScreen(navController: NavController, userId: Int) {
                         .fillMaxSize()
                         .padding(16.dp)
                 ) {
-                    // [기본 정보 섹션]
                     item {
                         Text("기본 정보", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.height(8.dp))
@@ -438,7 +451,6 @@ fun UserDetailScreen(navController: NavController, userId: Int) {
                         Spacer(modifier = Modifier.height(24.dp))
                     }
 
-                    // [활동 내역 1: 등록한 쓰레기통]
                     item {
                         Text(
                             "등록한 쓰레기통 (${data.trashcans.size})",
@@ -464,7 +476,6 @@ fun UserDetailScreen(navController: NavController, userId: Int) {
 
                     item { Spacer(modifier = Modifier.height(24.dp)) }
 
-                    // [활동 내역 2: 신고 내역]
                     item {
                         Text(
                             "신고 내역 (${data.reports.size})",
@@ -483,8 +494,6 @@ fun UserDetailScreen(navController: NavController, userId: Int) {
                             )
                         }
                     }
-
-                    // 리스트 하단 여백 확보 (버튼에 가려지지 않게)
                     item { Spacer(modifier = Modifier.height(80.dp)) }
                 }
             } else {
