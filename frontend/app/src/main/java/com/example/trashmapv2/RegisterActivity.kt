@@ -169,7 +169,7 @@ class RegisterActivity : ComponentActivity() {
                 val finalRes = RetrofitClient.apiInstance.createBin(authHeader, binReq)
 
                 if (finalRes.isSuccessful) {
-                    Toast.makeText(this@RegisterActivity, "쓰레기통 등록이 건의되었습니다. 심사에 통과하면 쓰레기통이 등록됩니다", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@RegisterActivity, "등록 시도중...", Toast.LENGTH_SHORT).show()
                     onSuccess()
                 } else {
                     throw Exception("서버 등록 실패")

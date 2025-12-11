@@ -2,9 +2,11 @@ package com.example.trashmapv2.ui.admin
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
@@ -21,6 +23,7 @@ import androidx.navigation.NavController
 import com.example.trashmapv2.auth.TokenManager
 import com.example.trashmapv2.network.*
 import kotlinx.coroutines.launch
+import kotlin.math.ceil
 
 // ==========================================
 // [Screen 1] 유저 목록 화면 (UserManagementScreen)
@@ -31,34 +34,42 @@ import kotlinx.coroutines.launch
 fun UserManagementScreen(navController: NavController) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val ITEMS_PER_PAGE = 5
 
     // 상태 변수
     var userList by remember { mutableStateOf<List<AdminUser>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
 
+    var currentPage by remember { mutableIntStateOf(1) } // 현재 페이지 (1부터 시작)
+    var totalItems by remember { mutableIntStateOf(0) }  // 전체 아이템 개수 (total_count)
+
     // 검색어 상태
     var searchQuery by remember { mutableStateOf("") }
 
     // API 호출 함수
-    fun loadUsers() {
+    fun loadUsers(page: Int) {
         isLoading = true
         coroutineScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
             try {
+                val offset = (page - 1) * ITEMS_PER_PAGE
                 // 검색어가 비어있으면 null로 처리
                 val usernameParam = if (searchQuery.isBlank()) null else searchQuery
 
                 val response = RetrofitClient.apiInstance.getAdminUserList(
                     token = "Bearer $token",
                     username = usernameParam,
-                    offset = 0,
-                    limit = 100
+                    offset = offset,
+                    limit = ITEMS_PER_PAGE
                 )
 
                 if (response.isSuccessful) {
+                    val result = response.body()
                     userList = response.body()?.data ?: emptyList()
+                    totalItems = result?.totalCount ?: 0
                 } else {
-                    Toast.makeText(context, "목록 로드 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "목록 로드 실패: ${response.code()}", Toast.LENGTH_SHORT)
+                        .show()
                 }
             } catch (e: Exception) {
                 Toast.makeText(context, "오류: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -70,25 +81,41 @@ fun UserManagementScreen(navController: NavController) {
 
     // 화면 진입 시 초기 로드
     LaunchedEffect(Unit) {
-        loadUsers()
+        loadUsers(currentPage)
+    }
+
+    fun onSearch() {
+        currentPage = 1
+        loadUsers(1)
     }
 
     Scaffold(
-        // ★ [수정] 시스템 바(상단 카메라, 하단 홈키) 만큼 안쪽으로 패딩을 줍니다.
         modifier = Modifier
             .fillMaxSize()
             .systemBarsPadding(),
         topBar = {
-            TopAppBar(
-                title = { Text("유저 관리") },
+            TopAppBar(title = { Text("유저 관리") })
+        },
+        bottomBar = {
+            val totalPages =
+                if (totalItems == 0) 1 else ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()
+            PaginationBar(
+                currentPage = currentPage,
+                totalPages = totalPages,
+                onPageChange = { newPage ->
+                    currentPage = newPage
+                    loadUsers(newPage)
+                }
             )
         }
-    ) { padding ->
+    ) { innerPadding -> // 1. 여기서 padding 값을 받습니다 (이름을 innerPadding으로 명시하면 더 좋습니다)
+
+        // 2. Column을 만들고 padding을 적용합니다.
         Column(
             modifier = Modifier
-                .padding(padding)
                 .fillMaxSize()
-                .padding(16.dp)
+                .padding(innerPadding) // ★ 핵심 수정: TopBar와 BottomBar 높이만큼 여백 확보
+                .padding(16.dp)        // 화면 좌우/내부 여백 추가 (선택사항)
         ) {
             // [검색창]
             OutlinedTextField(
@@ -96,7 +123,7 @@ fun UserManagementScreen(navController: NavController) {
                 onValueChange = { searchQuery = it },
                 label = { Text("유저 닉네임 검색") },
                 trailingIcon = {
-                    IconButton(onClick = { loadUsers() }) {
+                    IconButton(onClick = { onSearch() }) {
                         Icon(Icons.Default.Search, contentDescription = "검색")
                     }
                 },
@@ -106,31 +133,116 @@ fun UserManagementScreen(navController: NavController) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // [리스트]
+            // [리스트 영역]
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
             } else {
                 Text(
-                    text = "총 ${userList.size}명",
+                    text = "총 ${totalItems}명 (페이지 $currentPage / ${ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()})",
                     color = Color.Gray,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(userList) { user ->
-                        UserItemCard(user) {
-                            // 클릭 시 AdminMain에 정의된 상세 화면 경로로 이동
-                            navController.navigate("user_detail/${user.userId}")
+                if (userList.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("데이터가 없습니다.")
+                    }
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(userList) { user ->
+                            UserItemCard(user) {
+                                navController.navigate("user_detail/${user.userId}")
+                            }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+// ==========================================
+// ★ [New] 페이지네이션 컴포넌트
+// ==========================================
+@Composable
+fun PaginationBar(
+    currentPage: Int,
+    totalPages: Int,
+    onPageChange: (Int) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White) // 하단 바 배경색
+            .padding(8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // [이전] 버튼
+        IconButton(
+            onClick = { onPageChange(currentPage - 1) },
+            enabled = currentPage > 1
+        ) {
+            // Icon 리소스가 없으면 기본 아이콘 사용 (ArrowBack 등)
+            // 여기선 텍스트로 대체하거나 아이콘 사용 가능
+            Text("<", fontWeight = FontWeight.Bold)
+        }
+
+        // [페이지 번호들]
+        // 너무 많은 페이지가 있을 때를 대비해 현재 페이지 주변 5개만 보여주기 로직
+        // 예: 1 2 [3] 4 5
+        val startPage = (currentPage - 2).coerceAtLeast(1)
+        val endPage = (startPage + 4).coerceAtMost(totalPages)
+
+        // 보정: 끝 페이지가 totalPages보다 작아서 5개가 안 채워지면 startPage를 앞으로 당김
+        val adjustedStartPage = (endPage - 4).coerceAtLeast(1)
+
+        for (page in adjustedStartPage..endPage) {
+            PageButton(
+                page = page,
+                isSelected = page == currentPage,
+                onClick = { onPageChange(page) }
+            )
+        }
+
+        // [다음] 버튼
+        IconButton(
+            onClick = { onPageChange(currentPage + 1) },
+            enabled = currentPage < totalPages
+        ) {
+            Text(">", fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun PageButton(
+    page: Int,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    // 선택된 페이지는 색상을 다르게 표시
+    val backgroundColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
+    val contentColor = if (isSelected) Color.White else Color.Black
+
+    Box(
+        modifier = Modifier
+            .padding(horizontal = 4.dp)
+            .size(32.dp) // 버튼 크기
+            .background(color = backgroundColor, shape = RoundedCornerShape(4.dp))
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = page.toString(),
+            color = contentColor,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+        )
     }
 }
 

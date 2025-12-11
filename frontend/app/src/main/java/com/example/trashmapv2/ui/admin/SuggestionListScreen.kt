@@ -1,6 +1,5 @@
 package com.example.trashmapv2.ui.admin
 
-import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,43 +19,48 @@ import androidx.navigation.NavController
 import com.example.trashmapv2.auth.TokenManager
 import com.example.trashmapv2.network.*
 import kotlinx.coroutines.launch
+import kotlin.math.ceil
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SuggestionListScreen(navController: NavController) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val ITEMS_PER_PAGE = 5 // ★ 페이지당 5개 설정
 
     // 상태 변수
     var suggestList by remember { mutableStateOf<List<SuggestItem>>(emptyList()) }
-    var totalCount by remember { mutableStateOf(0) }
     var isLoading by remember { mutableStateOf(false) }
+
+    // 페이지네이션 상태
+    var currentPage by remember { mutableIntStateOf(1) }
+    var totalItems by remember { mutableIntStateOf(0) }
 
     // 검색어 (동 이름)
     var searchQuery by remember { mutableStateOf("") }
 
     // [1] 건의 목록 로드
-    fun loadSuggestions() {
+    fun loadSuggestions(page: Int) {
         isLoading = true
         coroutineScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
             try {
+                val offset = (page - 1) * ITEMS_PER_PAGE
                 val dongParam = if (searchQuery.isNotBlank()) listOf(searchQuery) else null
 
-                // 리스트 조회 시 status가 'resolved'인 것도 보고 싶다면 status 파라미터 조절 필요
-                // 여기서는 기본적으로 'pending'(대기중) 목록을 봅니다.
+                // 리스트 조회 (pending 상태만)
                 val response = RetrofitClient.apiInstance.getAdminSuggestList(
                     token = "Bearer $token",
                     dong = dongParam,
                     status = listOf("pending"),
-                    offset = 0,
-                    limit = 100
+                    offset = offset,
+                    limit = ITEMS_PER_PAGE
                 )
 
                 if (response.isSuccessful) {
                     val body = response.body()
                     suggestList = body?.data ?: emptyList()
-                    totalCount = body?.totalCount ?: 0
+                    totalItems = body?.totalCount ?: 0
                 } else {
                     Toast.makeText(context, "로드 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
                 }
@@ -68,14 +72,13 @@ fun SuggestionListScreen(navController: NavController) {
         }
     }
 
-    // [2] ★ 일괄 처리 함수 (새 API 적용)
+    // [2] ★ 일괄 처리 함수
     fun approveBatch() {
         if (searchQuery.isBlank()) return
 
         coroutineScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
             try {
-                // PATCH /suggest/bulk-resolve?dong={searchQuery} 호출
                 val response = RetrofitClient.apiInstance.bulkResolveSuggestions(
                     token = "Bearer $token",
                     dong = searchQuery
@@ -86,8 +89,9 @@ fun SuggestionListScreen(navController: NavController) {
                     val count = result?.updatedCount ?: 0
                     Toast.makeText(context, "${result?.dong}: 총 ${count}건 처리 완료", Toast.LENGTH_SHORT).show()
 
-                    // 처리 후 목록 새로고침
-                    loadSuggestions()
+                    // 처리 후 목록 새로고침 (1페이지로 리셋)
+                    currentPage = 1
+                    loadSuggestions(1)
                 } else {
                     Toast.makeText(context, "처리 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
                 }
@@ -97,9 +101,15 @@ fun SuggestionListScreen(navController: NavController) {
         }
     }
 
+    // 검색 버튼 클릭 시
+    fun onSearch() {
+        currentPage = 1
+        loadSuggestions(1)
+    }
+
     // 초기 로드
     LaunchedEffect(Unit) {
-        loadSuggestions()
+        loadSuggestions(currentPage)
     }
 
     Scaffold(
@@ -108,6 +118,18 @@ fun SuggestionListScreen(navController: NavController) {
             .systemBarsPadding(),
         topBar = {
             TopAppBar(title = { Text("건의사항 관리") })
+        },
+        bottomBar = {
+            // ★ 페이지네이션 바 (UserManagementScreen에 정의된 것 사용)
+            val totalPages = if (totalItems == 0) 1 else ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()
+            PaginationBar(
+                currentPage = currentPage,
+                totalPages = totalPages,
+                onPageChange = { newPage ->
+                    currentPage = newPage
+                    loadSuggestions(newPage)
+                }
+            )
         }
     ) { padding ->
         Column(
@@ -123,7 +145,7 @@ fun SuggestionListScreen(navController: NavController) {
                 label = { Text("동 이름 검색 (예: 상도1동)") },
                 placeholder = { Text("정확한 동 이름을 입력하세요") },
                 trailingIcon = {
-                    IconButton(onClick = { loadSuggestions() }) {
+                    IconButton(onClick = { onSearch() }) {
                         Icon(Icons.Default.Search, contentDescription = "검색")
                     }
                 },
@@ -139,15 +161,24 @@ fun SuggestionListScreen(navController: NavController) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = if (searchQuery.isNotBlank()) "'$searchQuery' 대기 건의: ${totalCount}건"
-                    else "전체 대기 건의: ${totalCount}건",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
-                )
+                // 페이지 정보 포함한 텍스트
+                val pageInfo = "페이지 $currentPage / ${ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()}"
+
+                Column {
+                    Text(
+                        text = if (searchQuery.isNotBlank()) "'$searchQuery' 대기: ${totalItems}건" else "전체 대기: ${totalItems}건",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                    Text(
+                        text = pageInfo,
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                }
 
                 // ★ 검색어가 있고, 결과가 있을 때만 '일괄 처리' 버튼 표시
-                if (searchQuery.isNotBlank() && totalCount > 0) {
+                if (searchQuery.isNotBlank() && totalItems > 0) {
                     Button(
                         onClick = { approveBatch() },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
@@ -227,8 +258,7 @@ fun SuggestItemCard(item: SuggestItem) {
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 상태 표시 (pending / resolved / approved)
-            // 작성하신 API는 'resolved'로 업데이트하므로 이에 대한 처리 추가
+            // 상태 표시
             val statusText = when(item.status) {
                 "pending" -> "대기중"
                 "approved", "resolved" -> "처리됨"

@@ -1,6 +1,5 @@
 package com.example.trashmapv2.ui.admin
 
-import com.example.trashmapv2.R
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -30,16 +29,17 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.example.trashmapv2.BuildConfig
+import com.example.trashmapv2.R
 import com.example.trashmapv2.auth.TokenManager
 import com.example.trashmapv2.network.AdminBinItem
 import com.example.trashmapv2.network.BinDetail
 import com.example.trashmapv2.network.KakaoRetrofitClient
 import com.example.trashmapv2.network.RetrofitClient
 import kotlinx.coroutines.launch
+import kotlin.math.ceil
 
 // 검색 모드 정의
 enum class SearchMode { REGION, USER }
-
 
 // ==========================================
 // [Screen 1] 쓰레기통 목록 및 검색 화면
@@ -49,10 +49,15 @@ enum class SearchMode { REGION, USER }
 fun TrashManagementScreen(navController: NavController) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val ITEMS_PER_PAGE = 5 // ★ 페이지당 5개 설정
 
     // 상태 변수
     var binList by remember { mutableStateOf<List<AdminBinItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
+
+    // 페이지네이션 상태
+    var currentPage by remember { mutableIntStateOf(1) }
+    var totalItems by remember { mutableIntStateOf(0) }
 
     // 검색 관련
     var searchMode by remember { mutableStateOf(SearchMode.REGION) }
@@ -61,31 +66,36 @@ fun TrashManagementScreen(navController: NavController) {
     var isSearching by remember { mutableStateOf(false) } // 드롭다운 노출 여부
 
     // --- API: 목록 로드 함수 ---
-    fun loadBins(query: String, mode: SearchMode) {
+    fun loadBins(page: Int) {
         isLoading = true
         coroutineScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
             try {
-                // 모드에 따라 파라미터 분기 (REGION->dong, USER->author)
-                val dongParam = if (mode == SearchMode.REGION) query else null
-                val authorParam = if (mode == SearchMode.USER) query else null
+                val offset = (page - 1) * ITEMS_PER_PAGE
+
+                // 모드에 따라 파라미터 분기
+                // 검색어가 비어있지 않을 때만 파라미터 전달
+                val finalQuery = if (searchQuery.isBlank()) null else searchQuery
+                val dongParam = if (searchMode == SearchMode.REGION) finalQuery else null
+                val authorParam = if (searchMode == SearchMode.USER) finalQuery else null
 
                 val response = RetrofitClient.apiInstance.getAdminBinList(
                     token = "Bearer $token",
                     dong = dongParam,
                     author = authorParam,
-                    offset = 0,
-                    limit = 100
+                    offset = offset,
+                    limit = ITEMS_PER_PAGE
                 )
 
                 if (response.isSuccessful) {
-                    binList = response.body()?.data ?: emptyList()
-                    if (binList.isEmpty()) {
-                        Toast.makeText(context, "검색 결과가 없습니다.", Toast.LENGTH_SHORT).show()
-                    }
+                    val result = response.body()
+                    binList = result?.data ?: emptyList()
+                    // ★ API 응답에 totalCount가 포함되어 있다고 가정합니다.
+                    // 만약 AdminBinListResponse 클래스에 totalCount가 없다면 추가해야 합니다.
+                    totalItems = result?.totalCount ?: 0
                 } else {
                     Log.e("API_ERROR", "Error: ${response.code()}")
-                    Toast.makeText(context, "데이터 로드 실패", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "데이터 로드 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 Log.e("FetchBins", "Error", e)
@@ -96,6 +106,18 @@ fun TrashManagementScreen(navController: NavController) {
         }
     }
 
+    // 화면 진입 시 초기 로드
+    LaunchedEffect(Unit) {
+        loadBins(currentPage)
+    }
+
+    // 검색 실행 함수
+    fun onSearch() {
+        currentPage = 1
+        loadBins(1)
+        isSearching = false
+    }
+
     // --- API: 카카오 주소 검색 ---
     fun searchAddress(query: String) {
         if (query.length < 2 || searchMode == SearchMode.USER) return
@@ -103,7 +125,7 @@ fun TrashManagementScreen(navController: NavController) {
         coroutineScope.launch {
             try {
                 val response = KakaoRetrofitClient.service.searchAddress(
-                    apiKey = "KakaoAK ${BuildConfig.KAKAO_REST_API_KEY}", // BuildConfig 확인 필요
+                    apiKey = "KakaoAK ${BuildConfig.KAKAO_REST_API_KEY}",
                     query = query
                 )
                 if (response.isSuccessful) {
@@ -118,10 +140,26 @@ fun TrashManagementScreen(navController: NavController) {
     }
 
     Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .systemBarsPadding(), // ★ 시스템 바 가림 방지
         topBar = {
             TopAppBar(title = { Text("쓰레기통 관리") })
+        },
+        bottomBar = {
+            // ★ 페이지네이션 바 추가
+            val totalPages = if (totalItems == 0) 1 else ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()
+            PaginationBar(
+                currentPage = currentPage,
+                totalPages = totalPages,
+                onPageChange = { newPage ->
+                    currentPage = newPage
+                    loadBins(newPage)
+                }
+            )
         }
     ) { paddingValues ->
+        // ★ Column으로 전체 감싸고 paddingValues 적용
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -133,7 +171,9 @@ fun TrashManagementScreen(navController: NavController) {
                 RadioButton(
                     selected = searchMode == SearchMode.REGION,
                     onClick = {
-                        searchMode = SearchMode.REGION; searchQuery = ""; binList = emptyList()
+                        searchMode = SearchMode.REGION
+                        searchQuery = ""
+                        // 모드 변경 시 초기화
                     }
                 )
                 Text("지역(동) 검색", modifier = Modifier.clickable { searchMode = SearchMode.REGION })
@@ -141,7 +181,8 @@ fun TrashManagementScreen(navController: NavController) {
                 RadioButton(
                     selected = searchMode == SearchMode.USER,
                     onClick = {
-                        searchMode = SearchMode.USER; searchQuery = ""; binList = emptyList()
+                        searchMode = SearchMode.USER
+                        searchQuery = ""
                     }
                 )
                 Text("유저 이름 검색", modifier = Modifier.clickable { searchMode = SearchMode.USER })
@@ -164,12 +205,7 @@ fun TrashManagementScreen(navController: NavController) {
                         Text(if (searchMode == SearchMode.REGION) "동 이름 (예: 화곡동)" else "유저 이름")
                     },
                     trailingIcon = {
-                        IconButton(onClick = {
-                            if (searchQuery.isNotEmpty()) {
-                                loadBins(searchQuery, searchMode)
-                                isSearching = false
-                            }
-                        }) {
+                        IconButton(onClick = { onSearch() }) {
                             Icon(Icons.Default.Search, contentDescription = "검색")
                         }
                     },
@@ -188,11 +224,10 @@ fun TrashManagementScreen(navController: NavController) {
                                 text = { Text(address) },
                                 onClick = {
                                     val trimmed = address.trim()
-                                    // "동" 단위 파싱 로직 (필요 시 더 정교하게 수정)
+                                    // "동" 단위 파싱 로직
                                     val realDong = trimmed.split(" ").last()
                                     searchQuery = realDong
-                                    isSearching = false
-                                    loadBins(realDong, SearchMode.REGION)
+                                    onSearch() // 선택 즉시 검색 실행
                                 }
                             )
                         }
@@ -209,19 +244,25 @@ fun TrashManagementScreen(navController: NavController) {
                 }
             } else {
                 Text(
-                    text = "검색 결과: ${binList.size}건",
+                    text = "총 ${totalItems}건 (페이지 $currentPage / ${ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()})",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.Gray,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(binList) { bin ->
-                        AdminBinItemCard(bin) {
-                            navController.navigate("trash_detail/${bin.trashcanId}")
+                if (binList.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("검색 결과가 없습니다.")
+                    }
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(binList) { bin ->
+                            AdminBinItemCard(bin) {
+                                navController.navigate("trash_detail/${bin.trashcanId}")
+                            }
                         }
                     }
                 }
@@ -229,6 +270,9 @@ fun TrashManagementScreen(navController: NavController) {
         }
     }
 }
+
+
+
 // ==========================================
 // [Component] 목록 아이템 카드
 // ==========================================
@@ -262,7 +306,6 @@ fun AdminBinItemCard(item: AdminBinItem, onClick: () -> Unit) {
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 주소 표시 (백엔드에서 dong만 주면 dong 표시, address 있으면 address 표시)
             Text(
                 text = item.dong ?: "위치 정보 없음",
                 fontSize = 16.sp,
@@ -273,7 +316,6 @@ fun AdminBinItemCard(item: AdminBinItem, onClick: () -> Unit) {
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // 상태 표시
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "상태: ${item.status}",
@@ -291,7 +333,6 @@ fun AdminBinItemCard(item: AdminBinItem, onClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrashBinDetailScreen(navController: NavController, binId: Int) {
-    // ... (기존 변수 및 LaunchedEffect, deleteBin 함수 동일) ...
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -323,7 +364,7 @@ fun TrashBinDetailScreen(navController: NavController, binId: Int) {
                 val response = RetrofitClient.apiInstance.deleteBin("Bearer $token", binId)
                 if (response.isSuccessful) {
                     Toast.makeText(context, "삭제되었습니다.", Toast.LENGTH_SHORT).show()
-                    navController.popBackStack() // 목록으로 복귀
+                    navController.popBackStack()
                 } else {
                     Toast.makeText(context, "삭제 실패 (Code: ${response.code()})", Toast.LENGTH_SHORT).show()
                 }
@@ -333,8 +374,10 @@ fun TrashBinDetailScreen(navController: NavController, binId: Int) {
         }
     }
 
-
     Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .systemBarsPadding(), // ★ 상세 화면도 시스템 바 패딩 적용
         topBar = {
             TopAppBar(
                 title = { Text("상세 정보") },
@@ -346,6 +389,7 @@ fun TrashBinDetailScreen(navController: NavController, binId: Int) {
             )
         }
     ) { padding ->
+        // innerPadding 적용 및 스크롤 처리
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
@@ -357,7 +401,7 @@ fun TrashBinDetailScreen(navController: NavController, binId: Int) {
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(20.dp)
-                        .verticalScroll(rememberScrollState()) // ✅ 스크롤 가능하게 설정
+                        .verticalScroll(rememberScrollState())
                 ) {
                     Text("기본 정보", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(10.dp))
@@ -383,7 +427,6 @@ fun TrashBinDetailScreen(navController: NavController, binId: Int) {
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-
                     Text("현장 사진", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(10.dp))
 
@@ -395,8 +438,6 @@ fun TrashBinDetailScreen(navController: NavController, binId: Int) {
                         elevation = CardDefaults.cardElevation(4.dp)
                     ) {
                         AsyncImage(
-                            // binDetail 데이터 클래스에 imageUrl 필드가 있다고 가정합니다.
-                            // 만약 이름이 다르다면 bin.imgUrl 등으로 수정해주세요.
                             model = bin.imgUrl,
                             contentDescription = "쓰레기통 현장 사진",
                             modifier = Modifier.fillMaxSize(),
@@ -406,7 +447,7 @@ fun TrashBinDetailScreen(navController: NavController, binId: Int) {
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(32.dp)) // 버튼과 간격
+                    Spacer(modifier = Modifier.height(32.dp))
 
                     // 삭제 버튼
                     Button(
@@ -419,14 +460,14 @@ fun TrashBinDetailScreen(navController: NavController, binId: Int) {
                         Text("쓰레기통 삭제", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp)) // 하단 여백
+                    Spacer(modifier = Modifier.height(20.dp))
                 }
             }
         }
     }
 }
 
-// (참고용) DetailRow 컴포저블 예시
+// DetailRow 컴포넌트
 @Composable
 fun DetailRow(label: String, value: String) {
     Row(

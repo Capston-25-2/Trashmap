@@ -21,27 +21,34 @@ import androidx.navigation.NavController
 import com.example.trashmapv2.auth.TokenManager
 import com.example.trashmapv2.network.*
 import kotlinx.coroutines.launch
+import kotlin.math.ceil
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IssueListScreen(navController: NavController) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val ITEMS_PER_PAGE = 5 // ★ 페이지당 5개 설정
 
     // 상태 변수
     var issueList by remember { mutableStateOf<List<IssueItem>>(emptyList()) }
-    var totalCount by remember { mutableStateOf(0) }
     var isLoading by remember { mutableStateOf(false) }
+
+    // 페이지네이션 상태
+    var currentPage by remember { mutableIntStateOf(1) }
+    var totalItems by remember { mutableIntStateOf(0) }
 
     // 검색어 (동 이름)
     var searchQuery by remember { mutableStateOf("") }
 
     // [1] 이슈 목록 불러오기
-    fun loadIssues() {
+    fun loadIssues(page: Int) {
         isLoading = true
         coroutineScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
             try {
+                val offset = (page - 1) * ITEMS_PER_PAGE
+
                 // 검색어가 비어있으면 null, 있으면 값 전달
                 val dongParam = if (searchQuery.isNotBlank()) searchQuery else null
 
@@ -49,13 +56,14 @@ fun IssueListScreen(navController: NavController) {
                     token = "Bearer $token",
                     dong = dongParam,
                     status = listOf("pending"), // 미해결 건만 조회
-                    limit = 100
+                    offset = offset,
+                    limit = ITEMS_PER_PAGE
                 )
 
                 if (response.isSuccessful) {
                     val body = response.body()
                     issueList = body?.data ?: emptyList()
-                    totalCount = body?.totalCount ?: 0
+                    totalItems = body?.totalCount ?: 0
                 } else {
                     Toast.makeText(context, "로드 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
                 }
@@ -83,26 +91,46 @@ fun IssueListScreen(navController: NavController) {
 
                 if (response.isSuccessful) {
                     Toast.makeText(context, "해결 완료! 신고자에게 알림이 전송되었습니다.", Toast.LENGTH_SHORT).show()
-                    // 목록에서 바로 제거 (새로고침 없이)
-                    issueList = issueList.filter { it.issueId != issueId }
-                    totalCount = (totalCount - 1).coerceAtLeast(0)
+
+                    // 현재 페이지 데이터 갱신
+                    loadIssues(currentPage)
                 } else {
                     Toast.makeText(context, "처리 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "오류 발생", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "오류 발생: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
+    // 검색 실행 함수
+    fun onSearch() {
+        currentPage = 1
+        loadIssues(1)
+    }
+
     // 화면 진입 시 초기 로드
-    LaunchedEffect(Unit) { loadIssues() }
+    LaunchedEffect(Unit) {
+        loadIssues(currentPage)
+    }
 
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .systemBarsPadding(),
-        topBar = { TopAppBar(title = { Text("이슈(신고) 관리") }) }
+            .systemBarsPadding(), // ★ 시스템 바 가림 방지
+        topBar = { TopAppBar(title = { Text("이슈(신고) 관리") }) },
+        bottomBar = {
+            // ★ 페이지네이션 바
+            val totalPages = if (totalItems == 0) 1 else ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()
+            PaginationBar(
+                currentPage = currentPage,
+                totalPages = totalPages,
+                onPageChange = { newPage ->
+                    currentPage = newPage
+                    loadIssues(newPage)
+                }
+            )
+        }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -117,7 +145,7 @@ fun IssueListScreen(navController: NavController) {
                 onValueChange = { searchQuery = it },
                 label = { Text("동 이름 검색 (예: 흑석동)") },
                 trailingIcon = {
-                    IconButton(onClick = { loadIssues() }) {
+                    IconButton(onClick = { onSearch() }) {
                         Icon(Icons.Default.Search, contentDescription = "검색")
                     }
                 },
@@ -129,12 +157,12 @@ fun IssueListScreen(navController: NavController) {
 
             // 상단 카운트
             Text(
-                text = "대기 중인 이슈: ${totalCount}건",
+                text = "대기 이슈: ${totalItems}건 (페이지 $currentPage / ${ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()})",
                 fontWeight = FontWeight.Bold,
-                fontSize = 16.sp
+                fontSize = 14.sp,
+                color = Color.Gray,
+                modifier = Modifier.padding(bottom = 8.dp)
             )
-
-            Spacer(modifier = Modifier.height(8.dp))
 
             // 리스트
             if (isLoading) {

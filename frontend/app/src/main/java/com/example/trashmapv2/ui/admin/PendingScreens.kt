@@ -1,7 +1,6 @@
 package com.example.trashmapv2.ui.admin
 
 import android.widget.Toast
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,66 +19,117 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import coil.compose.AsyncImage // Coil 라이브러리 필요 (없으면 Image로 대체)
+import coil.compose.AsyncImage
 import com.example.trashmapv2.auth.TokenManager
 import com.example.trashmapv2.network.*
 import kotlinx.coroutines.launch
+import kotlin.math.ceil
 
-// 대기 목록 화면
+// ==========================================
+// 1. 대기 목록 화면 (페이지네이션 적용)
+// ==========================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PendingBinListScreen(navController: NavController) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val ITEMS_PER_PAGE = 5 // ★ 페이지당 5개
+
+    // 데이터 상태
     var binList by remember { mutableStateOf<List<AdminBinItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
 
+    // 페이지네이션 상태
+    var currentPage by remember { mutableIntStateOf(1) }
+    var totalItems by remember { mutableIntStateOf(0) }
+
     // 대기 중인 목록 로드
-    fun loadPendingBins() {
+    fun loadPendingBins(page: Int) {
         isLoading = true
         coroutineScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
             try {
+                val offset = (page - 1) * ITEMS_PER_PAGE
+
                 val response = RetrofitClient.apiInstance.getAdminBinList(
                     token = "Bearer $token",
                     dong = null,
                     status = "pending_validation", // ★ 대기 상태만 필터링
-                    offset = 0,
-                    limit = 100
+                    offset = offset,
+                    limit = ITEMS_PER_PAGE
                 )
+
                 if (response.isSuccessful) {
-                    binList = response.body()?.data ?: emptyList()
+                    val result = response.body()
+                    binList = result?.data ?: emptyList()
+                    totalItems = result?.totalCount ?: 0
+                } else {
+                    Toast.makeText(context, "목록 로드 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                // Error handling
+                Toast.makeText(context, "오류: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
                 isLoading = false
             }
         }
     }
 
-    LaunchedEffect(Unit) { loadPendingBins() }
+    // 초기 로드
+    LaunchedEffect(Unit) {
+        loadPendingBins(currentPage)
+    }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("등록 허가 대기") }) }
+        modifier = Modifier
+            .fillMaxSize()
+            .systemBarsPadding(), // ★ 시스템 바 가림 방지
+        topBar = {
+            TopAppBar(title = { Text("등록 허가 대기") })
+        },
+        bottomBar = {
+            // ★ 페이지네이션 바
+            val totalPages = if (totalItems == 0) 1 else ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()
+            PaginationBar(
+                currentPage = currentPage,
+                totalPages = totalPages,
+                onPageChange = { newPage ->
+                    currentPage = newPage
+                    loadPendingBins(newPage)
+                }
+            )
+        }
     ) { padding ->
-        if (isLoading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        } else if (binList.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("대기 중인 요청이 없습니다.", color = Color.Gray)
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.padding(padding).padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(binList) { bin ->
-                    AdminBinItemCard(bin) {
-                        // 클릭 시 상세(허가) 화면으로 이동
-                        navController.navigate("pending_detail/${bin.trashcanId}")
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            // 상단 정보 텍스트
+            Text(
+                text = "대기 요청: ${totalItems}건 (페이지 $currentPage / ${ceil(totalItems.toDouble() / ITEMS_PER_PAGE).toInt()})",
+                color = Color.Gray,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            if (isLoading) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            } else if (binList.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("대기 중인 요청이 없습니다.", color = Color.Gray)
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(binList) { bin ->
+                        AdminBinItemCard(bin) {
+                            // 클릭 시 상세(허가) 화면으로 이동
+                            navController.navigate("pending_detail/${bin.trashcanId}")
+                        }
                     }
                 }
             }
@@ -96,6 +146,7 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var binDetail by remember { mutableStateOf<BinDetail?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
 
     // 상세 정보 로드
     LaunchedEffect(binId) {
@@ -104,9 +155,13 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
             val response = RetrofitClient.apiInstance.getBinDetail("Bearer $token", binId)
             if (response.isSuccessful) {
                 binDetail = response.body()
+            } else {
+                Toast.makeText(context, "상세 정보를 불러오지 못했습니다.", Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
             Toast.makeText(context, "상세 정보 로드 실패", Toast.LENGTH_SHORT).show()
+        } finally {
+            isLoading = false
         }
     }
 
@@ -115,11 +170,15 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
         coroutineScope.launch {
             val token = TokenManager.getAuthToken(context) ?: return@launch
             try {
+                // status: "approved" (승인) or "rejected" (거절)
+                val updateRequest = BinStatusUpdate(status = status)
+
                 val response = RetrofitClient.apiInstance.updateBinStatus(
                     token = "Bearer $token",
                     binId = binId,
-                    body = BinStatusUpdate(status) // "approved" or "rejected"
+                    body = updateRequest
                 )
+
                 if (response.isSuccessful) {
                     val msg = if (status == "approved") "허가 완료" else "거절 완료"
                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -134,7 +193,9 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
     }
 
     Scaffold(
-        modifier = Modifier.fillMaxSize().systemBarsPadding(),
+        modifier = Modifier
+            .fillMaxSize()
+            .systemBarsPadding(), // ★ 시스템 바 패딩 적용
         topBar = {
             TopAppBar(
                 title = { Text("등록 심사") },
@@ -146,8 +207,14 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
             )
         }
     ) { padding ->
-        if (binDetail == null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        if (isLoading) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else if (binDetail == null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("데이터를 불러올 수 없습니다.")
+            }
         } else {
             val bin = binDetail!!
             Column(
@@ -160,11 +227,11 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(350.dp), // 사진 높이
-                    elevation = CardDefaults.cardElevation(4.dp)
+                        .height(350.dp), // 사진 높이 넉넉하게
+                    elevation = CardDefaults.cardElevation(4.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White)
                 ) {
                     if (!bin.imgUrl.isNullOrEmpty()) {
-                        // Coil 라이브러리 사용 (AsyncImage)
                         AsyncImage(
                             model = bin.imgUrl,
                             contentDescription = "현장 사진",
@@ -196,7 +263,7 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
                 Text("제보자", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Text(bin.author.username, fontSize = 16.sp, color = Color.Blue)
 
-                Spacer(modifier = Modifier.weight(1f)) // 버튼을 맨 아래로 밀기
+                Spacer(modifier = Modifier.weight(1f)) // ★ 버튼을 화면 맨 아래로 밀어내기
 
                 // [3] 하단 버튼 (거절 / 허가)
                 Row(
@@ -206,13 +273,13 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
                     // 거절 버튼
                     Button(
                         onClick = { processBin("rejected") },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935)), // 빨간색
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935)), // Red
                         modifier = Modifier
                             .weight(1f)
                             .height(56.dp),
                         shape = MaterialTheme.shapes.medium
                     ) {
-                        Icon(Icons.Default.Close, null)
+                        Icon(Icons.Default.Close, null, tint = Color.White)
                         Spacer(Modifier.width(8.dp))
                         Text("거절하기", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
@@ -220,13 +287,13 @@ fun PendingBinDetailScreen(navController: NavController, binId: Int) {
                     // 허가 버튼
                     Button(
                         onClick = { processBin("approved") },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF43A047)), // 초록색
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF43A047)), // Green
                         modifier = Modifier
                             .weight(1f)
                             .height(56.dp),
                         shape = MaterialTheme.shapes.medium
                     ) {
-                        Icon(Icons.Default.Check, null)
+                        Icon(Icons.Default.Check, null, tint = Color.White)
                         Spacer(Modifier.width(8.dp))
                         Text("허가하기", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
