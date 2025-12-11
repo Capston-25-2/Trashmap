@@ -135,8 +135,8 @@ class Issue(Base):
     trashcan_id = Column(BIGINT, ForeignKey("trashcan.trashcan_id", ondelete="CASCADE"), nullable=False)
     
     trashcan = relationship("Trashcan", back_populates="issues")
-    reports = relationship("Report", back_populates="issue")
-    verifications = relationship("IssueVerification", back_populates="issue")
+    reports = relationship("Report", back_populates="issue", cascade="all, delete-orphan")
+    verifications = relationship("IssueVerification", back_populates="issue", cascade="all, delete-orphan")
 
     @hybrid_property
     def report_count(self):
