@@ -58,7 +58,7 @@ def detect_trashcan(bucket, key):
     response = rekognition_client.detect_labels(
         Image={'S3Object': {'Bucket': bucket, 'Name': key}},
         MaxLabels=10,
-        MinConfidence=30 # 확률이 30% 미만이면 라벨을 가져오지도 않음
+        MinConfidence=25 # 확률이 30% 미만이면 라벨을 가져오지도 않음
     )
 
     # 감지된 라벨들 중에 'Trash Can' 관련 키워드가 있는지 확인
