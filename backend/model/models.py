@@ -65,7 +65,7 @@ class Trashcan(Base):
     user = relationship("User", back_populates="trashcans")
     categories = relationship("TrashcanCategory", secondary=trashcan_to_category, back_populates="trashcans")
     reports = relationship("Report", back_populates="trashcan")
-    issues = relationship("Issue", back_populates="trashcan")
+    issues = relationship("Issue", back_populates="trashcan", cascade="all, delete-orphan")
 
     @hybrid_property
     def latitude(self):
@@ -132,7 +132,7 @@ class Issue(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
     resolved_at = Column(TIMESTAMP, nullable=True)
     
-    trashcan_id = Column(BIGINT, ForeignKey("trashcan.trashcan_id"), nullable=False)
+    trashcan_id = Column(BIGINT, ForeignKey("trashcan.trashcan_id", ondelete="CASCADE"), nullable=False)
     
     trashcan = relationship("Trashcan", back_populates="issues")
     reports = relationship("Report", back_populates="issue")
