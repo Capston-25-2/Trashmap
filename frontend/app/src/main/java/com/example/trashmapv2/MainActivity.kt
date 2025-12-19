@@ -1,0 +1,908 @@
+package com.example.trashmapv2
+
+// Android 기본 패키지
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.Geocoder
+import android.os.Bundle
+import android.os.Looper
+import android.util.Log
+import android.widget.Toast
+import java.util.Locale
+
+// AndroidX (Jetpack) 패키지
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.core.app.ActivityCompat
+import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
+import androidx.compose.material3.ExperimentalMaterial3Api
+
+// Jetpack Compose UI 패키지
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+// Google (Play Services) 패키지
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+
+// KakaoMap (VectorMap) 패키지
+import com.kakao.vectormap.KakaoMap
+import com.kakao.vectormap.KakaoMapReadyCallback
+import com.kakao.vectormap.LatLng
+import com.kakao.vectormap.MapLifeCycleCallback
+import com.kakao.vectormap.MapView
+import com.kakao.vectormap.camera.*
+import com.kakao.vectormap.label.Label
+import com.kakao.vectormap.label.LabelOptions
+import com.kakao.vectormap.label.LabelStyle
+import com.kakao.vectormap.label.LabelStyles
+
+// 애플리케이션 내부 패키지
+import com.example.trashmapv2.auth.SuggestionPrefs
+import com.example.trashmapv2.auth.TokenManager
+import com.example.trashmapv2.data.BinDetail
+import com.example.trashmapv2.data.BinGeometry
+import com.example.trashmapv2.ui.main.*
+import com.example.trashmapv2.utils.MissionPrefs
+import com.example.trashmapv2.ui.theme.TrashMapAppV2Theme
+import com.example.trashmapv2.data.MissionInfo
+import com.example.trashmapv2.network.KakaoRetrofitClient
+import com.example.trashmapv2.network.ReportRequest
+import com.example.trashmapv2.network.RetrofitClient
+import com.kakao.vectormap.label.CompetitionType
+import com.kakao.vectormap.label.OrderingType
+
+// 메인 액티비티 (지도, 위치, UI 통합)
+class MainActivity : AppCompatActivity() {
+
+    // 지도 뷰 및 엔진 객체
+    private lateinit var mapView: MapView
+    private var kakaoMap: KakaoMap? = null
+
+    // 위치 서비스 및 지오코더
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private lateinit var geocoder: Geocoder
+
+    // 내 위치 표시용 핀 및 콜백
+    private var myPositionPin: Label? = null
+    private lateinit var locationCallback: LocationCallback
+
+    // 미션 전용 레이어 변수
+    private var missionLayer: com.kakao.vectormap.label.LabelLayer? = null
+
+    // [변경] 원본 데이터 저장용 (서버에서 받은 거 통째로 보관)
+    private var allDownloadedBins: List<BinDetail> = emptyList()
+
+    // [유지] 지도에 표시 중인 데이터 (필터링 된 결과)
+    private var currentBinList: List<BinDetail> = emptyList()
+
+    // [유지] 현재 켜져 있는 필터 (기본값: 비어있으면 전체 보기)
+    private var selectedCategoryIds by mutableStateOf(emptySet<Int>())
+
+    private var currentAddress by mutableStateOf("위치 파악 중...")
+
+    // 현재 지도에 표시된 미션 데이터 (핀 클릭 시 사용)
+    private var currentMissionList: List<MissionInfo> = emptyList()
+
+    // [최적화] 핀 스타일을 미리 로딩해서 저장해둘 변수
+    private var cachedNormalStyles: LabelStyles? = null
+    private var cachedRedStyles: LabelStyles? = null
+
+    private var binLayer: com.kakao.vectormap.label.LabelLayer? = null
+    private var userLayer: com.kakao.vectormap.label.LabelLayer? = null
+
+    // UI 상태: 선택된 쓰레기통 정보 (바텀시트 표시용)
+    var selectedBinInfo by mutableStateOf<BinDetail?>(null)
+        private set
+    // UI 상태: 선택된 미션 정보 (바텀시트 표시용)
+    var selectedMissionInfo by mutableStateOf<MissionInfo?>(null)
+        private set
+
+    private val KAKAO_REST_API_KEY = BuildConfig.KAKAO_REST_API_KEY
+
+    // API 호출 제한 레벨 (이 값보다 줌 레벨이 낮으면 호출 안 함)
+    private val MIN_ZOOM_LEVEL_FOR_API = 13
+    private var onFirstLocationFound: (() -> Unit)? = null
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // 전체 화면(Edge-to-Edge) 설정
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        // 필수 객체 초기화
+        mapView = MapView(this)
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        geocoder = Geocoder(this, Locale.KOREA)
+
+        setContent {
+            TrashMapAppV2Theme(darkTheme = false) {
+
+                var isAppLoading by remember { mutableStateOf(true) }
+
+                DisposableEffect(Unit) {
+                    // 지도에서 위치를 찾으면 실행될 행동을 정의
+                    this@MainActivity.onFirstLocationFound = {
+                        isAppLoading = false // 로딩 끝!
+                    }
+                    onDispose { }
+                }
+
+                LaunchedEffect(Unit) {
+                    delay(10000L)
+                    if (isAppLoading) {
+                        isAppLoading = false
+                    }
+                }
+
+                // --- 기존 상태 변수들 ---
+                val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                val coroutineScope = rememberCoroutineScope()
+
+                // 건의 모드 관련 상태
+                var isSuggestionModeActive by remember { mutableStateOf(false) }
+
+                // 쓰레기통 핀 클릭 감지 -> 바텀시트 열기
+                LaunchedEffect(selectedBinInfo) {
+                    if (selectedBinInfo != null) {
+                        coroutineScope.launch { sheetState.show() }
+                    }
+                }
+
+                // 미션 핀 클릭 감지 -> 바텀시트 열기
+                LaunchedEffect(selectedMissionInfo) {
+                    if (selectedMissionInfo != null) {
+                        sheetState.show()
+                    }
+                }
+
+                // 미션 상세 바텀시트
+                if (selectedMissionInfo != null) {
+                    ModalBottomSheet(
+                        onDismissRequest = { selectedMissionInfo = null },
+                        sheetState = sheetState,
+                        dragHandle = { BottomSheetDefaults.DragHandle() }
+                    ) {
+                        MissionDetailsSheet(
+                            missionInfo = selectedMissionInfo!!,
+                            onVerifyClick = { isYes ->
+                                verifyMissionToServer(selectedMissionInfo!!.id.toInt(), isYes)
+                                coroutineScope.launch { sheetState.hide() }
+                                    .invokeOnCompletion { selectedMissionInfo = null }
+                            },
+                            onDismiss = {
+                                coroutineScope.launch { sheetState.hide() }
+                                    .invokeOnCompletion { selectedMissionInfo = null }
+                            }
+                        )
+                    }
+                }
+
+                // 건의 모드 활성화 시 카메라 이동 멈춤 감지 (주소 변환)
+                LaunchedEffect(isSuggestionModeActive) {
+                    val map = kakaoMap
+                    if (map != null) {
+                        if (isSuggestionModeActive) {
+                            // [건의 모드] 멈추면 주소 찾기
+                            map.setOnCameraMoveEndListener { _, cameraPosition, _ ->
+                                val mapCenter = cameraPosition.position
+                                currentAddress = getAddressFromCoordinates(mapCenter)
+                                Log.d("MainActivity", "지도 멈춤(건의): 주소 업데이트")
+                            }
+                        } else {
+                            map.setOnCameraMoveEndListener { _, cameraPosition, _ ->
+                                // 줌 레벨 체크 후 서버 요청
+                                if (cameraPosition.zoomLevel >= MIN_ZOOM_LEVEL_FOR_API) {
+                                    fetchBinsFromServer(map)
+                                    fetchMissionsFromServer(map)
+                                    Log.d("MainActivity", "지도 멈춤(일반): 데이터 조회 요청")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 건의 모드에서 뒤로가기 버튼 처리
+                BackHandler(enabled = isSuggestionModeActive) {
+                    isSuggestionModeActive = false
+                }
+
+                // [3] ★ 전체를 감싸는 최상위 Box (스플래시 화면을 겹치기 위함)
+                Box(modifier = Modifier.fillMaxSize()) {
+
+                    // --- A. 메인 지도 및 UI (가장 아래 레이어) ---
+                    // (기존 Box 로직을 그대로 유지하되, 여기 안에 포함시킴)
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        // 지도 화면 표시
+                        AndroidView(
+                            factory = {
+                                mapView.apply { start(mapLifeCycleCallback, mapReadyCallback) }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+
+                        // UI 분기: 건의 모드 vs 일반 모드
+                        if (isSuggestionModeActive) {
+                            // 건의 모드 UI
+                            SuggestionAddressBar(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top)),
+                                address = currentAddress
+                            )
+                            SuggestionCenterPin(modifier = Modifier.align(Alignment.Center))
+                            SuggestionConfirmBar(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom)),
+                                onCancelClick = { isSuggestionModeActive = false },
+                                onConfirmClick = {
+                                    val currentMapCenter = kakaoMap?.cameraPosition?.position
+                                    if (currentMapCenter != null) {
+                                        sendSuggestionToServer(
+                                            lat = currentMapCenter.latitude,
+                                            lon = currentMapCenter.longitude,
+                                            address = currentAddress
+                                        )
+                                    } else {
+                                        Toast.makeText(this@MainActivity, "지도가 준비되지 않았습니다.", Toast.LENGTH_SHORT).show()
+                                    }
+                                    isSuggestionModeActive = false
+                                }
+                            )
+                        } else {
+                            // 일반 모드 UI
+                            MapFilterTopBar(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top)),
+                                selectedIds = selectedCategoryIds,
+                                onFilterClick = { clickedId ->
+                                    val newSelection = if (selectedCategoryIds.contains(clickedId) && selectedCategoryIds.size == 1) {
+                                        emptySet()
+                                    } else {
+                                        setOf(clickedId)
+                                    }
+                                    selectedCategoryIds = newSelection
+
+                                    if (kakaoMap != null) {
+                                        refreshMapPins(kakaoMap!!)
+                                    }
+                                }
+                            )
+                            AppBottomNavigation(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom)),
+                                onProfileClick = {
+                                    val targetClass = if (isUserLoggedIn()) ProfileActivity::class.java else LoginActivity::class.java
+                                    startActivity(Intent(this@MainActivity, targetClass))
+                                },
+                                onAddBinClick = {
+                                    if (isUserLoggedIn()) {
+                                        if (ActivityCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                                            Toast.makeText(this@MainActivity, "위치 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                                                .addOnSuccessListener { location ->
+                                                    if (location != null) {
+                                                        val intent = Intent(this@MainActivity, RegisterActivity::class.java).apply {
+                                                            putExtra("latitude", location.latitude)
+                                                            putExtra("longitude", location.longitude)
+                                                        }
+                                                        startActivity(intent)
+                                                    } else {
+                                                        Toast.makeText(this@MainActivity, "현재 위치를 찾을 수 없습니다.", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                                .addOnFailureListener {
+                                                    Toast.makeText(this@MainActivity, "위치 오류", Toast.LENGTH_SHORT).show()
+                                                }
+                                        }
+                                    } else {
+                                        Toast.makeText(this@MainActivity, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
+                                        startActivity(Intent(this@MainActivity, LoginActivity::class.java))
+                                    }
+                                },
+                                onSuggestionClick = {
+                                    if (isUserLoggedIn()) {
+                                        moveToMyLocation()
+                                        lifecycleScope.launch {
+                                            delay(600L)
+                                            val mapCenter = kakaoMap?.cameraPosition?.position
+                                            if (mapCenter != null) {
+                                                fetchDongFromKakao(mapCenter.latitude, mapCenter.longitude)
+                                            }
+                                            isSuggestionModeActive = true
+                                        }
+                                    } else {
+                                        Toast.makeText(this@MainActivity, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
+                                        startActivity(Intent(this@MainActivity, LoginActivity::class.java))
+                                    }
+                                }
+                            )
+                            FloatingActionButton(
+                                onClick = { moveToMyLocation() },
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Bottom))
+                                    .padding(bottom = 100.dp, end = 16.dp),
+                                containerColor = MaterialTheme.colorScheme.surface
+                            ) {
+                                Icon(imageVector = Icons.Default.MyLocation, contentDescription = "내 위치로 이동")
+                            }
+                        }
+                    }
+
+                    // --- B. 바텀 시트 (Overlay) ---
+                    if (selectedBinInfo != null) {
+                        ModalBottomSheet(
+                            onDismissRequest = { selectedBinInfo = null },
+                            sheetState = sheetState,
+                            dragHandle = { BottomSheetDefaults.DragHandle() }
+                        ) {
+                            PinDetailsSheet(
+                                binInfo = selectedBinInfo!!,
+                                onReportAction = { reportType ->
+                                    reportBinToServer(selectedBinInfo!!.id, reportType)
+                                    coroutineScope.launch { sheetState.hide() }.invokeOnCompletion { selectedBinInfo = null }
+                                }
+                            )
+                        }
+                    }
+
+                    // --- C. ★ 스플래시 스크린 (가장 위 레이어) ---
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = isAppLoading,
+                        exit = androidx.compose.animation.fadeOut(
+                            animationSpec = androidx.compose.animation.core.tween(500) // 0.5초 동안 부드럽게 사라짐
+                        ),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        SplashScreen() // ★ 별도 정의한 로딩 화면 함수
+                    }
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    //  [핵심 로직] 핀 새로고침 함수 (쓰레기통 + 미션 통합 필터링)
+    // =========================================================================
+    private fun refreshMapPins(kakaoMap: KakaoMap) {
+
+        // 1. 쓰레기통 필터링
+        // 작동 원리:
+        // - 필터가 없으면(Empty) 다 보여줌.
+        // - 필터가 켜져 있으면(예: 1, 4), 쓰레기통이 그 번호를 가지고 있는지 확인.
+        // - 쓰레기통은 1,2,3만 가지고 있으므로, 만약 '4(미션)'만 켜져 있다면
+        //   쓰레기통 데이터는 자동으로 다 걸러져서 화면에서 사라짐. (정상 작동)
+        val filteredList = if (selectedCategoryIds.isEmpty()) {
+            allDownloadedBins
+        } else {
+            allDownloadedBins.filter { bin ->
+                bin.categoryIds.any { it in selectedCategoryIds }
+            }
+        }
+
+        currentBinList = filteredList
+        addBinPinsToMap(kakaoMap, currentBinList)
+
+        // 2. 미션 핀 필터링
+        val layer = missionLayer ?: return
+
+        // 미션 표시 조건:
+        // - 전체 보기(Empty) 이거나
+        // - 선택된 필터 목록에 '4'가 포함되어 있을 때
+        val shouldShowMissions = selectedCategoryIds.isEmpty() || selectedCategoryIds.contains(4)
+
+        if (shouldShowMissions) {
+            if (currentMissionList.isNotEmpty()) {
+                addMissionPinsToMap(kakaoMap, currentMissionList)
+            }
+        } else {
+            // 조건이 안 맞으면(예: '음료'만 보고 싶을 때) -> 미션 숨김
+            layer.removeAll()
+        }
+    }
+
+    // =========================================================================
+    //  미션 목록 불러오기 API
+    // =========================================================================
+    private fun fetchMissionsFromServer(kakaoMap: KakaoMap) {
+        val currentZoom = kakaoMap.cameraPosition?.zoomLevel ?: 0
+        if (currentZoom < 15) {
+            missionLayer?.removeAll()
+            return
+        }
+
+        lifecycleScope.launch {
+            val rawToken = TokenManager.getAuthToken(this@MainActivity)
+            val authHeader = if (rawToken != null) "Bearer $rawToken" else null
+            val center = kakaoMap.cameraPosition?.position ?: return@launch
+
+            try {
+                val response = RetrofitClient.apiInstance.getMissions(
+                    token = authHeader,
+                    lat = center.latitude,
+                    lon = center.longitude,
+                    radius = 1000
+                )
+
+                if (response.isSuccessful) {
+                    val serverMissions = response.body()?.data ?: emptyList()
+
+                    val filteredMissions = serverMissions.filter { item ->
+                        val idStr = item.issueId.toString()
+                        !MissionPrefs.isCompleted(this@MainActivity, idStr)
+                    }
+
+                    val newMissionList = filteredMissions.map { item ->
+                        MissionInfo(
+                            id = item.issueId.toString(),
+                            title = "제보 확인: ${item.issueType}",
+                            description = "예 ${item.agreeCount} / 아니요 ${item.disagreeCount}",
+                            imageUrl = null,
+                            position = LatLng.from(item.latitude, item.longitude)
+                        )
+                    }
+
+                    // 데이터 업데이트
+                    currentMissionList = newMissionList
+
+                    // [필터 체크] 데이터를 받았어도 화면에 그릴지 말지 결정
+                    // 여기도 똑같이 '4'번이 있거나 전체 보기일 때만 그림
+                    val shouldShowMissions = selectedCategoryIds.isEmpty() || selectedCategoryIds.contains(4)
+
+                    if (shouldShowMissions) {
+                        addMissionPinsToMap(kakaoMap, currentMissionList)
+                    } else {
+                        missionLayer?.removeAll()
+                    }
+
+                } else {
+                    Log.e("MissionAPI", "로드 실패: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                Log.e("MissionAPI", "에러", e)
+            }
+        }
+    }
+
+
+    // 미션 검증(수행) API
+    private fun verifyMissionToServer(issueId: Int, isValid: Boolean) {
+        lifecycleScope.launch {
+            val token = TokenManager.getAuthToken(this@MainActivity)
+            if (token == null) {
+                Toast.makeText(this@MainActivity, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            try {
+                val request = com.example.trashmapv2.data.VerificationRequest(isValid = isValid)
+                val response = RetrofitClient.apiInstance.verifyMission(
+                    token = "Bearer $token",
+                    issueId = issueId,
+                    request = request
+                )
+
+                if (response.isSuccessful || response.code() == 400) {
+                    val message = if (response.isSuccessful) "참여 감사합니다!" else "이미 참여한 미션입니다."
+                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+
+                    MissionPrefs.setCompleted(this@MainActivity, issueId.toString())
+                    currentMissionList = currentMissionList.filter { it.id != issueId.toString() }
+
+                    // 핀 다시 그리기 (필터 조건 확인 후)
+                    refreshMapPins(kakaoMap!!)
+                } else {
+                    Toast.makeText(this@MainActivity, "전송 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e("VerifyAPI", "Error", e)
+                Toast.makeText(this@MainActivity, "네트워크 오류", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // 쓰레기통 목록 API 호출
+    private fun fetchBinsFromServer(kakaoMap: KakaoMap) {
+        val currentZoom = kakaoMap.cameraPosition?.zoomLevel ?: 0
+        if (currentZoom < MIN_ZOOM_LEVEL_FOR_API) {
+            kakaoMap.labelManager?.layer?.removeAll()
+            return
+        }
+        lifecycleScope.launch {
+            val rawToken = TokenManager.getAuthToken(this@MainActivity)
+            val authHeader = if (rawToken != null) "Bearer $rawToken" else null
+
+            val bounds = getMapBounds(kakaoMap) ?: return@launch
+            val (swLat, swLon, neLat, neLon) = bounds
+
+            try {
+                val response = RetrofitClient.apiInstance.getBins(
+                    token = authHeader,
+                    swLat = swLat, swLon = swLon, neLat = neLat, neLon = neLon,
+                    categories = null
+                )
+
+                if (response.isSuccessful) {
+                    val serverBinList = response.body()?.data ?: emptyList()
+
+                    allDownloadedBins = serverBinList.map { serverBin ->
+                        BinDetail(
+                            id = serverBin.id,
+                            geometry = BinGeometry(serverBin.lat, serverBin.lon),
+                            description = "쓰레기통 (${serverBin.categories?.joinToString() ?: "정보 없음"})",
+                            imageUrl = serverBin.imgUrl,
+                            categoryIds = convertCategoryNamesToIds(serverBin.categories),
+                            isCongested = serverBin.isCongested,
+                            isVerified = serverBin.isVerified,
+                            author = null,
+                            createdAt = "2024-01-01"
+                        )
+                    }
+                    refreshMapPins(kakaoMap)
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "에러", e)
+            }
+        }
+    }
+
+    // 신고 API 호출 함수
+    private fun reportBinToServer(binId: Int, type: Int) {
+        lifecycleScope.launch {
+            val token = TokenManager.getAuthToken(this@MainActivity)
+            if (token == null) {
+                Toast.makeText(this@MainActivity, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+
+            try {
+                val requestBody = ReportRequest(reportType = type, description = "신고")
+                val response = RetrofitClient.apiInstance.reportBin("Bearer $token", binId, requestBody)
+
+                if (response.isSuccessful) {
+                    Toast.makeText(this@MainActivity, "신고 완료", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this@MainActivity, "전송 실패: ${response.code()}", Toast.LENGTH_SHORT).show()
+                }
+
+            } catch (e: Exception) {
+                Toast.makeText(this@MainActivity, "네트워크 오류", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // 내 위치로 카메라 이동 함수
+    private fun moveToMyLocation() {
+        val map = kakaoMap ?: return
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "위치 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+            .addOnSuccessListener { location ->
+                if (location != null) {
+                    val myPosition = LatLng.from(location.latitude, location.longitude)
+                    val cameraUpdate = CameraUpdateFactory.newCenterPosition(myPosition, 16)
+                    val animation = CameraAnimation.from(500)
+                    map.moveCamera(cameraUpdate, animation)
+
+                    if (myPositionPin == null) {
+                        addMyPositionPin(map, myPosition)
+                    } else {
+                        myPositionPin?.moveTo(myPosition)
+                    }
+                }
+            }
+    }
+
+    // 좌표를 주소 문자열로 변환
+    private fun getAddressFromCoordinates(latLng: LatLng): String {
+        return try {
+            val addresses = geocoder.getFromLocation(latLng.latitude, latLng.longitude, 1)
+            if (addresses.isNullOrEmpty()) "주소 정보 없음" else addresses[0].getAddressLine(0) ?: "주소 정보 없음"
+        } catch (e: Exception) {
+            "주소 변환 오류"
+        }
+    }
+
+    // 지도 생명주기 및 콜백
+    private val mapLifeCycleCallback = object : MapLifeCycleCallback() {
+        override fun onMapDestroy() {}
+        override fun onMapError(error: Exception) {}
+    }
+
+    private val mapReadyCallback = object : KakaoMapReadyCallback() {
+        override fun onMapReady(kakaoMap: KakaoMap) {
+            this@MainActivity.kakaoMap = kakaoMap
+            val labelManager = kakaoMap.labelManager
+
+            binLayer = labelManager?.getLayer("bin_layer")
+                ?: labelManager?.addLayer(com.kakao.vectormap.label.LabelLayerOptions.from("bin_layer").setZOrder(1000).setCompetitionType(CompetitionType.None).setOrderingType(OrderingType.Rank))
+
+            missionLayer = labelManager?.getLayer("mission_layer")
+                ?: labelManager?.addLayer(com.kakao.vectormap.label.LabelLayerOptions.from("mission_layer").setZOrder(1500))
+
+            userLayer = labelManager?.getLayer("user_layer")
+                ?: labelManager?.addLayer(com.kakao.vectormap.label.LabelLayerOptions.from("user_layer").setZOrder(2000).setCompetitionType(CompetitionType.None).setOrderingType(OrderingType.Rank))
+
+            if (labelManager != null) {
+                val normalPinRes = R.drawable.ic_map_pin
+                val redPinRes = R.drawable.ic_map_pin_red
+
+                val normalSmall = LabelStyle.from(getResizedBitmap(normalPinRes, 80, 80)).setZoomLevel(MIN_ZOOM_LEVEL_FOR_API)
+                val normalBig = LabelStyle.from(getResizedBitmap(normalPinRes, 90, 90)).setZoomLevel(17)
+                val normalBigBig = LabelStyle.from(getResizedBitmap(normalPinRes, 120, 120)).setZoomLevel(19)
+                cachedNormalStyles = LabelStyles.from(normalSmall, normalBig, normalBigBig)
+
+                val redSmall = LabelStyle.from(getResizedBitmap(redPinRes, 80, 80)).setZoomLevel(MIN_ZOOM_LEVEL_FOR_API)
+                val redBig = LabelStyle.from(getResizedBitmap(redPinRes, 90, 90)).setZoomLevel(17)
+                val redBigBig = LabelStyle.from(getResizedBitmap(redPinRes, 120, 120)).setZoomLevel(19)
+                cachedRedStyles = LabelStyles.from(redSmall, redBig, redBigBig)
+
+                labelManager.addLabelStyles(cachedNormalStyles)
+                labelManager.addLabelStyles(cachedRedStyles)
+            }
+
+            locationCallback = object : LocationCallback() {
+                override fun onLocationResult(locationResult: LocationResult) {
+                    val lastLocation = locationResult.lastLocation ?: return
+                    val newPosition = LatLng.from(lastLocation.latitude, lastLocation.longitude)
+
+                    if (myPositionPin == null) {
+                        val cameraUpdate = CameraUpdateFactory.newCenterPosition(newPosition, 16)
+                        kakaoMap.moveCamera(cameraUpdate)
+                        addMyPositionPin(kakaoMap, newPosition)
+                        onFirstLocationFound?.invoke()
+
+                    } else {
+                        myPositionPin?.moveTo(newPosition)
+                    }
+                }
+            }
+            startLocationTracking()
+
+            kakaoMap.setOnCameraMoveEndListener { map, cameraPosition, gestureType ->
+                if (cameraPosition.zoomLevel >= MIN_ZOOM_LEVEL_FOR_API) {
+                    fetchBinsFromServer(map)
+                }
+            }
+
+            fetchBinsFromServer(kakaoMap)
+            fetchMissionsFromServer(kakaoMap)
+
+            kakaoMap.setOnLabelClickListener { _, _, label ->
+                when (val tag = label.tag) {
+                    is Int -> { // 쓰레기통
+                        val foundBin = currentBinList.find { it.id == tag }
+                        if (foundBin != null) selectedBinInfo = foundBin
+                    }
+                    is String -> { // 미션
+                        if (isUserLoggedIn()) {
+                            val foundMission = currentMissionList.find { it.id == tag }
+                            if (foundMission != null) selectedMissionInfo = foundMission
+                        } else {
+                            Toast.makeText(this@MainActivity, "로그인이 필요합니다.", Toast.LENGTH_SHORT).show()
+                            startActivity(Intent(this@MainActivity, LoginActivity::class.java))
+                        }
+                    }
+                }
+                true
+            }
+        }
+    }
+
+    private fun addMissionPinsToMap(kakaoMap: KakaoMap, missions: List<MissionInfo>) {
+        val labelManager = kakaoMap.labelManager ?: return
+        val layer = missionLayer ?: return
+        layer.removeAll()
+
+        val style = LabelStyle.from(R.drawable.ic_mission_pin).setZoomLevel(MIN_ZOOM_LEVEL_FOR_API)
+        val styles = LabelStyles.from(style)
+        labelManager.addLabelStyles(styles)
+
+        for (mission in missions) {
+            val options = LabelOptions.from(mission.position).apply {
+                this.styles = styles
+                tag = mission.id
+            }
+            layer.addLabel(options)
+        }
+    }
+
+    private fun addBinPinsToMap(kakaoMap: KakaoMap, bins: List<BinDetail>) {
+        val layer = binLayer ?: return
+        layer.removeAll()
+
+        val stylesNormal = cachedNormalStyles ?: return
+        val stylesRed = cachedRedStyles ?: return
+
+        for (bin in bins) {
+            val position = LatLng.from(bin.geometry.latitude, bin.geometry.longitude)
+            val options = LabelOptions.from(position).apply {
+                this.styles = if (bin.isCongested) stylesRed else stylesNormal
+                this.rank = if (bin.isCongested) 1 else 0
+                tag = bin.id
+            }
+            layer.addLabel(options)
+        }
+    }
+
+    private fun getResizedBitmap(resId: Int, width: Int, height: Int): android.graphics.Bitmap? {
+        val options = android.graphics.BitmapFactory.Options()
+        options.inJustDecodeBounds = true
+        android.graphics.BitmapFactory.decodeResource(resources, resId, options)
+        val src = android.graphics.BitmapFactory.decodeResource(resources, resId) ?: return null
+        return android.graphics.Bitmap.createScaledBitmap(src, width, height, true)
+    }
+
+    private fun addMyPositionPin(kakaoMap: KakaoMap, position: LatLng) {
+        val layer = userLayer ?: return
+        layer.removeAll()
+        val myPositionStyle = LabelStyle.from(R.drawable.ic_my_position_green)
+        val myPositionStyles = LabelStyles.from(myPositionStyle)
+        kakaoMap.labelManager?.addLabelStyles(myPositionStyles)
+        val options = LabelOptions.from(position).apply { styles = myPositionStyles }
+        myPositionPin = layer.addLabel(options)
+    }
+
+    private fun getMapBounds(map: KakaoMap): List<Double>? {
+        if (mapView.width == 0 || mapView.height == 0) return null
+        val swLatLng = map.fromScreenPoint(0, mapView.height)
+        val neLatLng = map.fromScreenPoint(mapView.width, 0)
+        if (swLatLng == null || neLatLng == null) return null
+        return listOf(swLatLng.latitude, swLatLng.longitude, neLatLng.latitude, neLatLng.longitude)
+    }
+
+    private fun isUserLoggedIn(): Boolean {
+        return TokenManager.getAuthToken(this) != null
+    }
+
+    private fun startLocationTracking() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
+        if (kakaoMap == null || !::locationCallback.isInitialized) return
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L).build()
+        fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
+    }
+
+    private fun stopLocationTracking() {
+        if (!::locationCallback.isInitialized) return
+        fusedLocationClient.removeLocationUpdates(locationCallback)
+    }
+
+    private fun sendSuggestionToServer(lat: Double, lon: Double, address: String) {
+        if (!SuggestionPrefs.canSuggest(this)) {
+            Toast.makeText(this, "건의는 하루에 한 번만 가능합니다.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        lifecycleScope.launch {
+            val token = TokenManager.getAuthToken(this@MainActivity) ?: return@launch
+            try {
+                val dongName = extractDongFromAddress(address)
+                val request = com.example.trashmapv2.data.SuggestCreateRequest(lat = lat, lon = lon, dong = dongName)
+                val response = RetrofitClient.apiInstance.createSuggest("Bearer $token", request)
+
+                if (response.isSuccessful) {
+                    SuggestionPrefs.saveSuggestion(this@MainActivity)
+                    Toast.makeText(this@MainActivity, "건의 완료", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this@MainActivity, "실패: ${response.code()}", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(this@MainActivity, "오류 발생", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun convertCategoryNamesToIds(names: List<String>?): List<Int> {
+        if (names == null) return listOf(1)
+        val map = mapOf("일반" to 1, "재활용" to 2, "음료" to 3)
+        return names.mapNotNull { map[it] }.ifEmpty { listOf(1) }
+    }
+
+    private fun extractDongFromAddress(fullAddress: String): String {
+        val split = fullAddress.split(" ")
+        val dong = split.find { it.endsWith("동") }
+        return dong ?: fullAddress
+    }
+
+    private fun fetchDongFromKakao(lat: Double, lon: Double) {
+        lifecycleScope.launch {
+            try {
+                val response = KakaoRetrofitClient.service.getAddress("KakaoAK $KAKAO_REST_API_KEY", lon, lat)
+                if (response.isSuccessful) {
+                    val documents = response.body()?.documents
+                    if (!documents.isNullOrEmpty()) {
+                        currentAddress = "${documents[0].region2} ${documents[0].region3}"
+                    }
+                }
+            } catch (e: Exception) {}
+        }
+    }
+
+
+    // 로딩 화면 디자인 (로고 + 텍스트)
+    @Composable
+    fun SplashScreen() {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White), // ★ 배경을 흰색으로 변경
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                // [1] 앱 아이콘 (Image 사용 권장)
+                // Icon 대신 Image를 써야 아이콘의 원래 색상이 그대로 나옵니다.
+                Image(
+                    painter = painterResource(id = R.drawable.trashcan_app_icon),
+                    contentDescription = "App Logo",
+                    modifier = Modifier.size(120.dp), // 크기 조절
+                    contentScale = ContentScale.Fit
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // [2] 앱 이름 "쓰포터"
+                Text(
+                    text = "쓰포터", // ★ 텍스트 변경
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.ExtraBold, // 두껍게
+                    color = Color.Black // ★ 흰 배경이므로 검은 글씨
+                )
+
+                Spacer(modifier = Modifier.height(48.dp)) // 로딩바와 간격 좀 더 띄움
+
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        mapView.resume()
+        startLocationTracking()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        mapView.pause()
+        stopLocationTracking()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        mapView.pause()
+    }
+}
