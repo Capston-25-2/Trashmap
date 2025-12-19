@@ -22,4 +22,12 @@ interface KakaoApiService {
         @Query("query") query: String,
         @Query("analyze_type") analyzeType: String = "similar"
     ): Response<KakaoSearchResponse>
+
+    // 좌표 -> 주소 변환 (Reverse Geocoding)
+    @GET("v2/local/geo/coord2address.json")
+    suspend fun coordToAddress(
+        @Header("Authorization") apiKey: String,
+        @Query("x") longitude: String, // 경도 (x)
+        @Query("y") latitude: String   // 위도 (y)
+    ): Response<KakaoCoord2AddressResponse>
 }

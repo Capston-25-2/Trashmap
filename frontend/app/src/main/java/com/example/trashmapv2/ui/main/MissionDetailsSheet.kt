@@ -41,19 +41,7 @@ fun MissionDetailsSheet(
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 1. 현장 이미지
-        AsyncImage(
-            model = missionInfo.imageUrl,
-            contentDescription = missionInfo.description,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(200.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color.LightGray),
-            contentScale = ContentScale.Crop,
-            placeholder = painterResource(id = R.drawable.ic_image_placeholder),
-            error = painterResource(id = R.drawable.ic_image_placeholder)
-        )
+
 
         Spacer(modifier = Modifier.height(20.dp))
 
@@ -85,7 +73,7 @@ fun MissionDetailsSheet(
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
-            text = "사진 속 상황이 신고 내용과 일치하나요?",
+            text = "신고 내용과 일치하나요?",
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium
         )

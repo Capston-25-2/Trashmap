@@ -21,6 +21,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.example.trashmapv2.BuildConfig
 import com.example.trashmapv2.auth.AdminPrefs
 import com.example.trashmapv2.auth.TokenManager
 import com.example.trashmapv2.network.*
@@ -258,6 +259,38 @@ fun SuggestionListScreen(navController: NavController) {
 
 @Composable
 fun SuggestItemCard(item: SuggestItem) {
+    // 1. 주소 상태 변수 (초기값은 dong 정보 또는 로딩중 표시)
+    var displayAddress by remember {
+        mutableStateOf( "위치 정보 확인 중...")
+    }
+
+    // 2. 카드가 처음 렌더링될 때 위경도 -> 주소 변환 API 호출
+    LaunchedEffect(item.suggestId) {
+        try {
+            // 카카오 API 호출
+            val response = KakaoRetrofitClient.service.coordToAddress(
+                apiKey = "KakaoAK ${BuildConfig.KAKAO_REST_API_KEY}", // BuildConfig 확인 필요
+                longitude = item.lon.toString(),
+                latitude = item.lat.toString()
+            )
+
+            if (response.isSuccessful) {
+                val documents = response.body()?.documents
+                if (!documents.isNullOrEmpty()) {
+                    val doc = documents[0]
+                    // 도로명 주소가 있으면 우선 사용, 없으면 지번 주소 사용
+                    val roadAddr = doc.roadAddress?.addressName
+                    val jibunAddr = doc.address?.addressName
+
+                    displayAddress = roadAddr ?: jibunAddr ?: (item.dong ?: "주소 변환 실패")
+                }
+            }
+        } catch (e: Exception) {
+            // 에러 발생 시 기존 dong 정보 유지 혹은 에러 메시지
+            e.printStackTrace()
+        }
+    }
+
     Card(
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(2.dp),
@@ -283,11 +316,16 @@ fun SuggestItemCard(item: SuggestItem) {
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            // 3. 변환된 풀 주소 표시
             Text(
-                text = "위치: ${item.dong ?: "알 수 없음"}",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
+                text = "위치: $displayAddress", // 풀 주소 출력
+                fontSize = 16.sp, // 주소가 길어질 수 있으므로 폰트 살짝 조정
+                fontWeight = FontWeight.Bold,
+                lineHeight = 22.sp // 줄간격 확보
             )
+
+            // (참고용) 좌표가 필요하면 아래처럼 작게 표시 가능
+            // Text("(${item.lat}, ${item.lon})", fontSize = 10.sp, color = Color.LightGray)
 
             Spacer(modifier = Modifier.height(12.dp))
 

@@ -149,8 +149,8 @@ data class SuggestItem(
     @SerializedName("dong") val dong: String?,
     @SerializedName("status") val status: String, // "pending" or "approved"
     @SerializedName("created_at") val createdAt: String,
-    @SerializedName("lat") val lat: Double,
-    @SerializedName("lon") val lon: Double
+    @SerializedName("latitude") val lat: Double,
+    @SerializedName("longitude") val lon: Double
 )
 
 // [DTO] 일괄 처리 응답
